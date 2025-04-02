@@ -319,6 +319,57 @@ class SOLDataCollector:
             await asyncio.sleep(1)
             
         return data
+    
+    async def fetch_historical(self, timeframe: str, lookback_days: int = 30) -> pd.DataFrame:
+        """
+        Fetch historical data for a specific timeframe.
+        
+        Args:
+            timeframe: The timeframe to fetch ('5m', '15m', '1h', '4h', '1d')
+            lookback_days: Number of days of historical data to fetch
+            
+        Returns:
+            DataFrame with historical price data
+        """
+        if timeframe not in self.timeframes:
+            raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of {list(self.timeframes.keys())}")
+        
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=lookback_days)
+        
+        logger.info(f"Fetching {timeframe} data for {self.symbol} from {start_time} to {end_time}")
+        
+        try:
+            klines = self.client.klines(
+                symbol=self.symbol,
+                interval=self.timeframes[timeframe],
+                startTime=int(start_time.timestamp() * 1000),
+                endTime=int(end_time.timestamp() * 1000),
+                limit=1000
+            )
+            
+            # Convert to DataFrame with proper column names
+            df = pd.DataFrame(klines, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                'taker_buy_quote', 'ignore'
+            ])
+            
+            # Convert types
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df[col] = df[col].astype(float)
+            
+            # Add timeframe info
+            df['timeframe'] = timeframe
+            
+            logger.info(f"Successfully fetched {len(df)} {timeframe} candles")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error fetching {timeframe} data: {e}")
+            return pd.DataFrame()  # Return empty DataFrame on error
 
 async def main():
     # Get Neon connection string (you'll need to provide this)

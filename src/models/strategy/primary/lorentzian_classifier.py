@@ -211,6 +211,45 @@ class LorentzianClassifier(nn.Module):
         output = self.classifier(distances)
         
         return output
+
+    # The original forward method using MLFeatures is moved to this method for backward compatibility
+    def forward_with_features(self, features: MLFeatures) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass for feature-based input
+        
+        Parameters:
+        -----------
+        features : MLFeatures
+            Feature container with momentum, volatility, trend, and volume
+            
+        Returns:
+        --------
+        Dict[str, torch.Tensor]
+            Dictionary with output signals and metrics
+        """
+        # Initialize results dictionary
+        results = {}
+        
+        # Process features
+        feature_length = features.momentum.shape[0]
+        
+        # Concatenate all features
+        combined_features = torch.cat([
+            features.momentum.view(feature_length, -1),
+            features.volatility.view(feature_length, -1),
+            features.trend.view(feature_length, -1),
+            features.volume.view(feature_length, -1) if features.volume is not None else torch.zeros(feature_length, 1)
+        ], dim=1)
+        
+        # Calculate output probability
+        results['probability'] = self.forward(combined_features)
+        
+        # Generate signal
+        results['signal'] = torch.zeros_like(results['probability'])
+        results['signal'][results['probability'] > 0.5] = 1.0  # Long signal
+        results['signal'][results['probability'] < 0.5] = -1.0  # Short signal
+        
+        return results
     
     def generate_signals(self, x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
         """
@@ -352,47 +391,6 @@ class LorentzianClassifier(nn.Module):
             volume=volume_feature
         )
         
-    def forward(
-        self,
-        features: MLFeatures
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Forward pass through the classifier
-        
-        Args:
-            features: MLFeatures object with input features
-            
-        Returns:
-            Dictionary with predictions and signals
-        """
-        # Ensure kernel is correctly broadcast to match feature size
-        # The kernel should be small (e.g., size 3) and needs to be broadcast to match feature size (100)
-        feature_length = features.momentum.shape[0]
-        
-        # Either broadcast the kernel or apply it individually to each element
-        # Option 1: Create a weighted sum for each element based on the kernel
-        combined = torch.zeros_like(features.momentum, device=self.device)
-        
-        # Apply feature weights
-        combined = (
-            features.momentum * self.config.momentum_lookback / 100 +
-            features.volatility * self.config.volatility_threshold +
-            features.trend * self.config.regime_threshold +
-            features.volume * self.config.adx_threshold
-        )
-        
-        # Generate signals
-        buy_signals = (combined > 0).float()
-        sell_signals = (combined < 0).float()
-        
-        return {
-            'predictions': combined,
-            'buy_signals': buy_signals,
-            'sell_signals': sell_signals,
-            'long_signals': buy_signals,  # Alias for test compatibility
-            'short_signals': sell_signals  # Alias for test compatibility
-        }
-    
     def calculate_signals(
         self,
         data: pd.DataFrame
@@ -411,7 +409,7 @@ class LorentzianClassifier(nn.Module):
         
         # Generate predictions
         with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
-            results = self.forward(features)
+            results = self.forward_with_features(features)
         
         return results
     

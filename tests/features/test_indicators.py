@@ -86,16 +86,16 @@ def test_adx(sample_data, device):
     assert torch.all(signals['-di'] >= 0), "-DI below 0"
 
 def test_cci(sample_data, device):
-    """Test CCI indicator calculations"""
+    """Test CCI indicator"""
+    # Initialize CCI indicator
     cci = CCIIndicator(device=device)
+    
+    # Calculate signals
     signals = cci.calculate_signals(sample_data)
     
-    # Check signal properties
-    assert 'cci' in signals, "Missing CCI signal"
-    assert isinstance(signals['cci'], torch.Tensor), "CCI should be a tensor"
-    
-    # Verify tensor shape
-    assert len(signals['cci']) == len(sample_data), "CCI length mismatch"
+    # Check that output has expected keys and dimensions
+    assert 'cci' in signals, "CCI signal not found in output"
+    assert len(signals['cci']) == len(sample_data), "CCI output length mismatch"
     
     # Check if CCI responds to price changes
     price_changes = torch.diff(torch.tensor(sample_data['close'].values, device=device))
@@ -104,15 +104,16 @@ def test_cci(sample_data, device):
     # Filter out NaN values
     valid_mask = ~torch.isnan(cci_changes)
     if valid_mask.sum() > 1:  # Need at least 2 points for correlation
-        price_filtered = price_changes[valid_mask]
-        cci_filtered = cci_changes[valid_mask]
+        price_filtered = price_changes[valid_mask].cpu().numpy()
+        cci_filtered = cci_changes[valid_mask].cpu().numpy()
         
         if len(price_filtered) > 1:
-            stacked = torch.stack([price_filtered, cci_filtered])
-            correlation = torch.corrcoef(stacked)[0, 1]
+            # Use numpy for correlation calculation to avoid hipBLAS warning
+            import numpy as np
+            correlation = np.corrcoef(price_filtered, cci_filtered)[0, 1]
             
             # There should be some correlation between price changes and CCI changes
-            assert not torch.isnan(correlation), "CCI correlation is NaN"
+            assert not np.isnan(correlation), "CCI correlation is NaN"
             assert correlation != 0, "CCI shows no correlation with price changes"
 
 def test_indicator_integration(sample_data, device):

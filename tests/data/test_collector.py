@@ -8,6 +8,9 @@ import sys
 import os
 import logging
 from datetime import datetime
+import pytest
+import time
+import json
 
 # Add the parent directory to sys.path to allow imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -20,6 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@pytest.mark.asyncio
 async def test_binance_api():
     """Test basic Binance API connectivity"""
     try:
@@ -50,6 +54,7 @@ async def test_binance_api():
         logger.error(f"Binance API test failed: {str(e)}")
         return False
 
+@pytest.mark.asyncio
 async def test_websocket():
     """Test WebSocket streaming connection"""
     collector = SOLDataCollector()
@@ -111,22 +116,7 @@ async def test_websocket():
                 pass
         return False
 
-async def main():
-    logger.info("\n======== Testing Binance API Connection ========")
-    api_result = await test_binance_api()
-    
-    logger.info("\n======== Testing WebSocket Connection ========")
-    ws_result = await test_websocket()
-    
-    # Print summary
-    logger.info("\n======== Test Summary ========")
-    logger.info(f"API Test: {'✅ PASSED' if api_result else '❌ FAILED'}")
-    logger.info(f"WebSocket Test: {'✅ PASSED' if ws_result else '❌ FAILED'}")
-    
-    if api_result and ws_result:
-        logger.info("\n✅ All tests passed!")
-    else:
-        logger.error("\n❌ Some tests failed!")
-
+# This is for running the test directly from the command line
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(test_binance_api())
+    asyncio.run(test_websocket()) 

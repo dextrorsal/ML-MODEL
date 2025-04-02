@@ -57,3 +57,42 @@ Key directories:
 - `docs/` - Detailed documentation
 
 ## 🚀 Quick Start
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/ML-MODEL.git
+   cd ML-MODEL
+   ```
+
+2. **Install dependencies**
+   ```bash
+   conda create -n ML-torch python=3.8
+   conda activate ML-torch
+   pip install -r requirements.txt
+   ```
+
+3. **Setup database**
+   ```bash
+   python scripts/setup_database.py
+   ```
+
+4. **Collect historical data**
+   ```bash
+   python src/data/collectors/sol_data_collector.py --historical --days 60
+   ```
+
+5. **Train your model**
+   ```bash
+   python scripts/train_model.py --data-days 30 --epochs 10
+   ```
+
+6. **Run the dashboard**
+   ```bash
+   pip install -r scripts/dashboard/requirements-dashboard.txt
+   python scripts/dashboard/model_dashboard.py
+   ```
+
+7. **Start trading (paper mode)**
+   ```bash
+   python scripts/run_trading.py --paper --model models/trained/your_model.pt
+   ```

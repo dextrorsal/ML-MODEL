@@ -6,6 +6,13 @@ import numpy as np
 import torch
 from pathlib import Path
 import sys
+import warnings
+
+# Filter out specific deprecation warnings - update with more specific filters
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="binance.ws.websocket_api")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets.legacy")
+warnings.filterwarnings("ignore", message=".*WebSocketClientProtocol is deprecated.*")
+warnings.filterwarnings("ignore", message=".*websockets.legacy is deprecated.*")
 
 # Add src to Python path
 src_path = str(Path(__file__).parent.parent / 'src')
@@ -16,7 +23,7 @@ if src_path not in sys.path:
 def sample_price_data():
     """Generate sample OHLCV data for testing."""
     np.random.seed(42)
-    dates = pd.date_range(start='2024-01-01', periods=1000, freq='1H')
+    dates = pd.date_range(start='2024-01-01', periods=1000, freq='1h')
     
     data = {
         'timestamp': dates,
