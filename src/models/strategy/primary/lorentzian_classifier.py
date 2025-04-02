@@ -100,87 +100,201 @@ class TradeStats:
     profit_factor: float = 0.0
     sharpe_ratio: float = 0.0
 
-class LorentzianClassifier(BaseTorchIndicator):
+class LorentzianDistance(nn.Module):
     """
-    Enhanced Lorentzian Classifier with PyTorch backend.
-    
-    This classifier combines traditional technical analysis with modern machine learning,
-    using Lorentzian kernels for robust signal generation.
+    Custom Lorentzian distance layer for more robust classification
     """
+    def __init__(self, sigma: float = 1.0):
+        super(LorentzianDistance, self).__init__()
+        self.sigma = sigma
+        
+    def forward(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate Lorentzian distance between two tensors
+        """
+        # Get squared distance
+        squared_distance = torch.sum((x1 - x2) ** 2, dim=1)
+        
+        # Apply Lorentzian formula: log(1 + d²/sigma²)
+        lorentzian_distance = torch.log(1 + squared_distance / (self.sigma ** 2))
+        
+        return lorentzian_distance
+
+class LorentzianClassifier(nn.Module):
+    """
+    Neural network classifier using Lorentzian distance for signal generation
+    """
+    def __init__(self, input_size: int = 18, hidden_size: int = 64, 
+                 dropout_rate: float = 0.2, sigma: float = 1.0):
+        """
+        Initialize the Lorentzian Classifier
+        
+        Parameters:
+        -----------
+        input_size : int
+            Number of input features
+        hidden_size : int
+            Size of hidden layers
+        dropout_rate : float
+            Dropout rate for regularization
+        sigma : float
+            Sigma parameter for Lorentzian distance
+        """
+        super(LorentzianClassifier, self).__init__()
+        
+        # Save parameters
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.dropout_rate = dropout_rate
+        self.sigma = sigma
+        
+        # Feature extraction layers
+        self.feature_extractor = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, hidden_size),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(dropout_rate)
+        )
+        
+        # Attention mechanism
+        self.attention = nn.Sequential(
+            nn.Linear(hidden_size, 1),
+            nn.Sigmoid()
+        )
+        
+        # Prototype vectors (learnable centroids)
+        self.positive_prototype = nn.Parameter(torch.randn(hidden_size))
+        self.negative_prototype = nn.Parameter(torch.randn(hidden_size))
+        
+        # Lorentzian distance layer
+        self.lorentzian = LorentzianDistance(sigma=sigma)
+        
+        # Final classification layer
+        self.classifier = nn.Sequential(
+            nn.Linear(2, 1),  # 2 distances (to positive and negative prototypes)
+            nn.Sigmoid()
+        )
     
-    def __init__(
-        self,
-        config: Optional[LorentzianSettings] = None,
-        torch_config: Optional[TorchIndicatorConfig] = None
-    ):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Initialize the classifier with configuration settings.
+        Forward pass through the network
         
-        Args:
-            config: Lorentzian classifier specific configuration
-            torch_config: PyTorch configuration for GPU/CPU
+        Parameters:
+        -----------
+        x : torch.Tensor
+            Input tensor of shape (batch_size, input_size)
+            
+        Returns:
+        --------
+        torch.Tensor
+            Output probabilities of shape (batch_size, 1)
         """
-        super().__init__(torch_config)
+        # Extract features
+        features = self.feature_extractor(x)
         
-        self.config = config or LorentzianSettings()
-        self.stats = TradeStats()
-        self.features = MLFeatures()
+        # Apply attention
+        attention_weights = self.attention(features)
+        attended_features = features * attention_weights
         
-        # Initialize indicators exactly as in TradingView
-        self.rsi1 = RSIIndicator(period=14, config=torch_config)  # Feature 1: RSI(14)
-        self.wt = WaveTrendIndicator(config=torch_config)         # Feature 2: WT(10,11)
-        self.cci = CCIIndicator(period=20, config=torch_config)   # Feature 3: CCI(20)
-        self.adx = ADXIndicator(period=20, config=torch_config)   # Feature 4: ADX(20)
-        self.rsi2 = RSIIndicator(period=9, config=torch_config)   # Feature 5: RSI(9)
+        # Calculate distances to prototypes
+        positive_distances = self.lorentzian(attended_features, 
+                                            self.positive_prototype.expand(attended_features.size(0), -1))
+        negative_distances = self.lorentzian(attended_features, 
+                                            self.negative_prototype.expand(attended_features.size(0), -1))
         
-        # Initialize kernels
-        self.momentum_kernel = self._create_lorentzian_kernel(
-            self.config.kernel_size,
-            self.config.kernel_std
-        )
+        # Concatenate distances
+        distances = torch.stack([positive_distances, negative_distances], dim=1)
         
-        # Initialize feature calculators
-        self._init_feature_calculators()
+        # Final classification
+        output = self.classifier(distances)
         
-    def _init_feature_calculators(self):
-        """Initialize feature calculation components"""
-        self.momentum_calc = nn.Conv1d(
-            1, 1, self.config.momentum_lookback,
-            padding='same',
-            bias=False
-        )
-        self.volatility_calc = nn.Conv1d(
-            1, 1, self.config.volatility_lookback,
-            padding='same',
-            bias=False
-        )
-        self.trend_calc = nn.Conv1d(
-            1, 1, self.config.trend_lookback,
-            padding='same',
-            bias=False
-        )
-        self.volume_calc = nn.Conv1d(
-            1, 1, self.config.volume_lookback,
-            padding='same',
-            bias=False
-        )
+        return output
+    
+    def generate_signals(self, x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+        """
+        Generate trading signals from model predictions
         
-        # Move to device
-        self.momentum_calc.to(self.device)
-        self.volatility_calc.to(self.device)
-        self.trend_calc.to(self.device)
-        self.volume_calc.to(self.device)
+        Parameters:
+        -----------
+        x : torch.Tensor
+            Input tensor of shape (batch_size, input_size)
+        threshold : float
+            Probability threshold for generating signals
+            
+        Returns:
+        --------
+        torch.Tensor
+            Trading signals: 1 (buy), 0 (hold), -1 (sell)
+        """
+        # Get predictions
+        with torch.no_grad():
+            predictions = self.forward(x)
         
-    def _create_lorentzian_kernel(
-        self,
-        size: int,
-        std: float
-    ) -> torch.Tensor:
-        """Create Lorentzian kernel for feature calculation"""
-        x = torch.linspace(-size//2, size//2, size)
-        kernel = 1 / (1 + (x/std)**2)
-        return kernel.to(self.device)
+        # Generate signals
+        signals = torch.zeros_like(predictions)
+        signals[predictions > threshold + 0.1] = 1  # Strong buy
+        signals[predictions < threshold - 0.1] = -1  # Strong sell
         
+        return signals.squeeze()
+    
+    def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Predict class probabilities
+        
+        Parameters:
+        -----------
+        x : torch.Tensor
+            Input tensor of shape (batch_size, input_size)
+            
+        Returns:
+        --------
+        torch.Tensor
+            Class probabilities of shape (batch_size, 1)
+        """
+        with torch.no_grad():
+            return self.forward(x)
+    
+    def get_feature_importance(self, x: torch.Tensor) -> Dict[int, float]:
+        """
+        Calculate feature importance using gradient-based approach
+        
+        Parameters:
+        -----------
+        x : torch.Tensor
+            Input tensor of shape (batch_size, input_size)
+            
+        Returns:
+        --------
+        Dict[int, float]
+            Dictionary mapping feature indices to importance scores
+        """
+        # Enable gradients
+        x.requires_grad = True
+        
+        # Forward pass
+        outputs = self.forward(x)
+        
+        # Backward pass
+        outputs.sum().backward()
+        
+        # Get gradients
+        gradients = x.grad.abs()
+        
+        # Calculate feature importance as mean gradient magnitude
+        importance = gradients.mean(dim=0)
+        
+        # Create dictionary of feature indices to importance scores
+        importance_dict = {i: float(score) for i, score in enumerate(importance)}
+        
+        # Sort by importance
+        importance_dict = dict(sorted(importance_dict.items(), 
+                                      key=lambda item: item[1], 
+                                      reverse=True))
+        
+        return importance_dict
+
     def calculate_features(
         self,
         data: pd.DataFrame
