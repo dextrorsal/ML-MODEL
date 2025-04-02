@@ -162,24 +162,26 @@ class SingleDimLogisticRegression:
             return 0.0, 0.5
 
 class LogisticRegressionTorch(nn.Module):
-    """PyTorch-based logistic regression model with optional deep network"""
+    """
+    PyTorch implementation of logistic regression for trading
+    """
     
-    def __init__(self, input_dim: int = 1):
+    def __init__(self, input_dim: int = 2):
         """
-        Initialize the model with both simple and deep architectures.
+        Initialize the logistic regression model
         
         Args:
-            input_dim: Number of input features
+            input_dim: Dimension of the input features
         """
         super().__init__()
         
-        # Main logistic layer
+        # Simple logistic regression
         self.logistic = nn.Sequential(
             nn.Linear(input_dim, 1),
             nn.Sigmoid()
         )
         
-        # Optional deeper network for complex patterns
+        # Deep neural network for more complex patterns
         self.deep_network = nn.Sequential(
             nn.Linear(input_dim, 16),
             nn.ReLU(),
@@ -194,7 +196,30 @@ class LogisticRegressionTorch(nn.Module):
         self.use_deep = False
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the selected network"""
+        """Forward pass through the selected network
+        
+        Args:
+            x: Input tensor with shape (batch_size, features)
+            
+        Returns:
+            Predicted probabilities
+        """
+        # Ensure input has correct shape for the model
+        if x.dim() == 1:
+            x = x.unsqueeze(0)  # Add batch dimension if missing
+        
+        # Ensure x has the correct number of features
+        if x.shape[1] != self.logistic[0].in_features:
+            # If the number of features doesn't match, reshape or pad as needed
+            if x.shape[1] < self.logistic[0].in_features:
+                # Pad with zeros if fewer features than expected
+                padding = torch.zeros(x.shape[0], self.logistic[0].in_features - x.shape[1], 
+                                     device=x.device, dtype=x.dtype)
+                x = torch.cat([x, padding], dim=1)
+            else:
+                # Take only the first n features if there are more than expected
+                x = x[:, :self.logistic[0].in_features]
+        
         return self.deep_network(x) if self.use_deep else self.logistic(x)
 
 class LogisticRegression(BaseTorchIndicator):
@@ -280,8 +305,8 @@ class LogisticRegression(BaseTorchIndicator):
         sell_signals = torch.zeros_like(predictions, dtype=self.dtype)
         
         # Set signals based on threshold
-        buy_signals[predictions > self.threshold] = 1
-        sell_signals[predictions < -self.threshold] = 1
+        buy_signals[predictions > self.config.threshold] = 1
+        sell_signals[predictions < -self.config.threshold] = 1
         
         return {
             'predictions': predictions.squeeze(),

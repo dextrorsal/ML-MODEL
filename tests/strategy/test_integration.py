@@ -82,13 +82,13 @@ class StrategyTester:
         # Long entry conditions
         long_signal = (
             primary_signals['buy_signals'][idx] == 1 and
-            confirmed_signals['probabilities'][idx] > self.min_confidence
+            confirmed_signals['predictions'][idx] > self.min_confidence
         )
         
         # Short entry conditions
         short_signal = (
             primary_signals['sell_signals'][idx] == 1 and
-            confirmed_signals['probabilities'][idx] < (1 - self.min_confidence)
+            confirmed_signals['predictions'][idx] < (1 - self.min_confidence)
         )
         
         if long_signal or short_signal:
@@ -104,7 +104,7 @@ class StrategyTester:
                 'entry_price': current_bar['close'],
                 'entry_time': current_bar.name,
                 'size': size,
-                'confidence': confirmed_signals['probabilities'][idx].item()
+                'confidence': confirmed_signals['predictions'][idx].item()
             }
         return None
     

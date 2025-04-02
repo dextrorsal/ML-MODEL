@@ -94,6 +94,9 @@ class WaveTrendIndicator(BaseTorchIndicator):
         self.metrics = WaveTrendMetrics()
         self.last_price = None
         
+        # Initialize internal configuration values
+        self.channel_multiplier = 0.015  # Standard multiplier for WaveTrend
+        
     @property
     def channel_length(self) -> int:
         """Get channel length"""
@@ -144,40 +147,51 @@ class WaveTrendIndicator(BaseTorchIndicator):
         """Set oversold threshold"""
         self._oversold = value
     
-    def forward(self, high: torch.Tensor, low: torch.Tensor, close: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        high: torch.Tensor,
+        low: torch.Tensor,
+        close: torch.Tensor
+    ) -> Dict[str, torch.Tensor]:
         """
-        Calculate WaveTrend values using PyTorch operations
+        Calculate WaveTrend indicator values
         
         Args:
-            high: High prices tensor
-            low: Low prices tensor
-            close: Close prices tensor
+            high: High prices
+            low: Low prices
+            close: Close prices
             
         Returns:
-            Dictionary with WaveTrend values and signals
+            Dictionary with WT1, WT2 and trading signals
         """
-        # Calculate typical price
+        # Calculate HLC3 (typical price)
         hlc3 = (high + low + close) / 3.0
         
-        # Calculate first smoothing
-        esa = self.ema(hlc3, self.channel_length)
+        # Calculate EMA and standard deviation
+        ema1 = self.ema(hlc3, self._channel_length)
         
         # Calculate absolute price distance
-        d = torch.abs(hlc3 - esa)
+        abs_diff = torch.abs(hlc3 - ema1)
         
-        # Calculate second smoothing
-        d_smooth = self.ema(d, self.channel_length)
+        # Calculate average distance (ATR-like calculation)
+        avg_diff = self.ema(abs_diff, self._channel_length)
         
-        # Calculate ci
-        ci = (hlc3 - esa) / (0.015 * d_smooth)
+        # Normalize using channel multiplier
+        normalized = self.channel_multiplier * avg_diff
         
-        # Calculate wt1 and wt2
-        wt1 = self.ema(ci, self.average_length)
-        wt2 = self.sma(wt1, self.smoothing_length)
+        # Apply limits to avoid division by zero and large values
+        epsilon = 1e-10
+        normalized = torch.clamp(normalized, min=epsilon)
         
-        # Clamp values to ensure they stay within expected ranges
-        wt1 = torch.clamp(wt1, min=-100.0, max=100.0)
-        wt2 = torch.clamp(wt2, min=-100.0, max=100.0)
+        # Wave 1 calculation - normalized oscillator
+        wave1 = (hlc3 - ema1) / normalized
+        
+        # Wave 2 calculation - signal line
+        wave2 = self.ema(wave1, self._smoothing_length)
+        
+        # Apply clamps to keep values within reasonable ranges
+        wt1 = torch.clamp(wave1, min=-100.0, max=100.0)
+        wt2 = torch.clamp(wave2, min=-100.0, max=100.0)
         
         # Generate signals
         buy_signals = torch.zeros_like(wt1, dtype=self.dtype)
@@ -191,6 +205,7 @@ class WaveTrendIndicator(BaseTorchIndicator):
         return {
             'wt1': wt1,
             'wt2': wt2,
+            'wave_trend': wt1,  # Add wave_trend key for compatibility with Lorentzian Classifier
             'buy_signals': buy_signals,
             'sell_signals': sell_signals
         }
