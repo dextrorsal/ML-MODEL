@@ -1,178 +1,130 @@
-# ML Trading Model - Core Strategy
+# 🤖 ML-Powered Crypto Trading Bot
 
-## Project Structure
+> A sophisticated machine learning trading bot leveraging PyTorch and Neon for algorithmic trading on Solana and other cryptocurrencies.
+
+## 🌟 Features
+
+### 📊 Advanced Technical Indicators
+- **Lorentzian Classification**: State-of-the-art price action classification
+- **Enhanced Logistic Regression**: Probability-based trend detection
+- **Custom Indicators**: Specialized RSI and CCI implementations
+- **Wave Trend Analysis**: Advanced momentum detection
+
+### 🧠 Machine Learning Pipeline
+- **PyTorch Integration**: GPU-accelerated model training
+- **Automatic Mixed Precision**: Optimized performance
+- **Custom Feature Engineering**: Rich technical analysis features
+- **Real-time Signal Generation**: Live trading capabilities
+
+### 💾 Data Infrastructure
+- **Neon Database**: Efficient data storage and retrieval
+- **Data Pipeline**: Automated collection and processing
+- **Batch Processing**: Optimized data loading
+- **Real-time Updates**: Live market data integration
+
+## 🏗️ Project Structure
 ```
-ML-MODEL/
-├── data/                      # Market data storage
-│   ├── raw/                  # Raw data from Binance
-│   │   └── solana/          # Solana specific data
-│   └── processed/           # Preprocessed data
-├── models/                   # Model checkpoints
-│   └── checkpoints/         # Saved model files
-│       └── pattern_recognition/
-├── src/                     # Source code
-│   ├── data/               # Data handling
-│   │   ├── collectors/    # Data collection scripts
-│   │   └── processors/   # Data processing scripts
-│   ├── features/          # Feature engineering
-│   │   ├── technical/    # Technical indicators
-│   │   └── patterns/     # Pattern detection
-│   ├── models/           # Model definitions
-│   │   ├── architecture/ # Model structure
-│   │   ├── training/     # Training scripts
-│   │   └── archived/     # Previous model versions
-│   └── utils/           # Utility functions
-└── configs/            # Configuration files
-    └── model_configs/  # Model parameters
+src/
+├── data/
+│   ├── collectors/         # Market data collection
+│   ├── processors/        # Data processing
+│   └── pipeline/         # Neon data pipeline
+├── features/
+│   └── technical/        # Technical indicators
+├── models/              # ML model implementations
+└── utils/              # Helper functions
 ```
 
-## 1. Price Action & Pattern Recognition
-### Primary Patterns
-- Smart Money Concepts (SMC):
-  * Change of Character (CHoCH)
-  * Break of Structure (BOS)
-  * Range identification and trading
+## 🚀 Getting Started
 
-- Fractal Patterns:
-  * Bullish Fractals (Bottom Formation)
-  * Bearish Fractals (Top Formation)
-  * Fractal Trend Lines
-  * Multi-timeframe Fractal Alignment
+### Prerequisites
+- Python 3.8+
+- PyTorch
+- PostgreSQL (Neon)
+- CCXT for market data
 
-- ZigZag Patterns:
-  * W Bottoms (Strong Support)
-  * M Tops (Strong Resistance)
-  * Swing Point Analysis
-  * Trend Channel Detection
+### Installation
+```bash
+# Clone the repository
+git clone [your-repo-url]
 
-- Traditional Patterns:
-  * Double Bottom/Top formations
-  * Head and Shoulders (Regular & Inverse)
-  * Cup and Handle patterns
-  * Bull/Bear Flags
-  * Ascending/Descending triangles
+# Install dependencies
+pip install -r requirements.txt
 
-### Pattern Validation
-- Multiple Timeframe Rules:
-  * 1d: Major trend and key levels
-  * 4h: Intermediate trend and structure
-  * 1h: Trend direction and continuation
-  * 15m: Pattern formation and validation
-  * 5m: Entry timing and execution
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your credentials
+```
 
-- Pattern Confirmation Criteria:
-  * Double Bottom:
-    - Clear support level touch twice
-    - Higher low on second touch preferred
-    - Volume should decrease on second bottom
-    - Minimum 2% price difference between bottoms
-  
-  * Fractal Patterns:
-    - Minimum 5 candle formation
-    - Volume confirmation on pivot points
-    - Clear higher highs/lower lows structure
-    - Multi-timeframe alignment preferred
+### Configuration
+1. Set up your Neon database credentials
+2. Configure your trading pairs and timeframes
+3. Adjust model parameters in `config.yaml`
 
-  * ZigZag Patterns:
-    - Minimum swing size (varies by timeframe):
-      * 1d: 3% minimum swing
-      * 4h: 2.5% minimum swing
-      * 1h: 2% minimum swing
-      * 15m: 1.5% minimum swing
-      * 5m: 1% minimum swing
-    - Clear pivot point formation
-    - Volume confirmation at turns
-    - Trend channel respect
-  
-  * Range Trading Rules:
-    - Minimum 3% range size for valid range
-    - At least 2 touches on support/resistance
-    - Clear rejection wicks at boundaries
-    - Volume increases at range boundaries
+## 💡 Usage
 
-  * CHoCH/BOS Validation:
-    - Previous structure break
-    - Clear higher high/lower low formation
-    - Volume increase on breakout
-    - No immediate price rejection
+### Data Collection
+```python
+from src.data.pipeline.neon_collector import NeonDataCollector
 
-- Volume Analysis:
-  * Higher than 3-period average for breakouts
-  * Lower volume acceptable in range consolidation
-  * Volume trend alignment with price action
-  * Relative volume comparison across timeframes
+collector = NeonDataCollector(connection_string)
+collector.collect_historical('BTC/USD', days=30)
+```
 
-## 2. Model Architecture
-### Pattern Recognition Model v2
-- **Core Components:**
-  * Bidirectional LSTM with Enhanced Attention
-  * Multi-pattern Classification
-  * Hierarchical Timeframe Learning
+### Training Models
+```python
+from src.models.training import ModelTrainer
 
-- **Input Features:**
-  * 60-period window of OHLCV data
-  * Normalized price data
-  * Log-transformed volume
-  * Technical indicators
+trainer = ModelTrainer(model_config)
+trainer.train(train_loader)
+```
 
-- **Pattern Types:**
-  * Fractal Patterns (Bullish/Bearish)
-  * ZigZag Formations (W-Bottoms, M-Tops)
-  * Traditional Patterns
-  * SMC Components
+### Live Trading
+```python
+from src.realtime import TradingEngine
 
-### Training Configuration
-- **Hierarchical Learning:**
-  * Daily (1d): 20 epochs, batch_size=16
-  * 4-Hour (4h): 15 epochs, batch_size=24
-  * 1-Hour (1h): 10 epochs, batch_size=32
-  * 15-Minute (15m): 8 epochs, batch_size=48
-  * 5-Minute (5m): 5 epochs, batch_size=64
+engine = TradingEngine(model, strategy)
+engine.start_trading()
+```
 
-- **Optimization:**
-  * Early stopping patience: 10 epochs
-  * Learning rate reduction: 50% on plateau
-  * Gradient clipping: 1.0
-  * Mixed precision training
+## 📈 Performance
 
-### Database Integration
-- **Neon PostgreSQL:**
-  * Real-time training progress tracking
-  * Model checkpointing
-  * Pattern detection results
-  * Performance metrics
+The system incorporates:
+- GPU acceleration for model training
+- Efficient batch processing
+- Optimized database queries
+- Real-time signal generation
 
-## 3. Usage Instructions
-1. **Environment Setup:**
-   ```bash
-   conda activate ML-torch
-   pip install -r requirements.txt
-   ```
+## 🛠️ Development
 
-2. **Data Collection:**
-   ```bash
-   python src/data/collectors/sol_data_collector.py
-   ```
+### Current Features
+- [x] PyTorch integration
+- [x] Neon database setup
+- [x] Custom technical indicators
+- [x] Data pipeline
+- [x] Batch processing
 
-3. **Model Training:**
-   ```bash
-   python src/models/training/train_pattern_recognition.py
-   ```
+### Roadmap
+- [ ] Advanced backtesting framework
+- [ ] More ML models
+- [ ] Web interface
+- [ ] Performance analytics
+- [ ] Risk management system
 
-4. **GPU Monitoring:**
-   ```bash
-   python src/utils/monitor_gpu.py
-   ```
+## 📝 License
 
-## 4. Performance Metrics
-- Pattern Detection Accuracy: >94%
-- Validation Loss: ~0.4915
-- Real-time Processing Capability
-- GPU Optimization for AMD RX 6750 XT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 5. Future Improvements
-- [ ] Add Elliott Wave Pattern Recognition
-- [ ] Implement Real-time Pattern Alerts
-- [ ] Enhance Multi-timeframe Correlation
-- [ ] Add Position Sizing Optimization
-- [ ] Implement Pattern Strength Scoring
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📧 Contact
+
+D3X7 - Creator of ML-Powered Crypto Trading Bot
+
+Project Link: [https://github.com/D3X7/ML-MODEL](https://github.com/D3X7/ML-MODEL)
+
+---
+
+⭐️ If you found this project interesting, please consider giving it a star!
