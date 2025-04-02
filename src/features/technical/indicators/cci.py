@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
+from contextlib import nullcontext
 from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
 
 @dataclass
@@ -30,7 +31,15 @@ class CciMetrics:
     avg_loss: float = 0.0
     profit_factor: float = 0.0
 
-class CciIndicator(BaseTorchIndicator):
+@dataclass
+class CCIConfig(TorchIndicatorConfig):
+    """Configuration for CCI indicator"""
+    period: int = 20
+    constant: float = 0.015
+    overbought: float = 100.0
+    oversold: float = -100.0
+
+class CCIIndicator(BaseTorchIndicator):
     """
     PyTorch-based CCI implementation with advanced features
     """
@@ -41,29 +50,54 @@ class CciIndicator(BaseTorchIndicator):
         constant: float = 0.015,
         overbought: float = 100.0,
         oversold: float = -100.0,
-        config: Optional[TorchIndicatorConfig] = None
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        config: Optional[CCIConfig] = None
     ):
         """
         Initialize CCI indicator with PyTorch backend
         
         Args:
-            period: CCI calculation period
-            constant: CCI constant (typically 0.015)
-            overbought: Overbought threshold
-            oversold: Oversold threshold
-            config: Optional PyTorch configuration
+            period: Period for CCI calculation
+            constant: Constant for CCI calculation
+            overbought: Overbought threshold for CCI
+            oversold: Oversold threshold for CCI
+            device: Optional device for tensor operations
+            dtype: Optional dtype for tensor operations
+            config: Optional CCI configuration
         """
+        if config is None:
+            config = CCIConfig(
+                period=period,
+                constant=constant,
+                overbought=overbought,
+                oversold=oversold,
+                device=device,
+                dtype=dtype
+            )
         super().__init__(config)
-        
-        self.period = period
-        self.constant = constant
-        self.overbought = overbought
-        self.oversold = oversold
+        self.config = config
         
         # Trading metrics
         self.metrics = CciMetrics()
         self.last_price = None
         
+    @property
+    def period(self) -> int:
+        return self.config.period
+        
+    @property
+    def constant(self) -> float:
+        return self.config.constant
+        
+    @property
+    def overbought(self) -> float:
+        return self.config.overbought
+        
+    @property
+    def oversold(self) -> float:
+        return self.config.oversold
+    
     def forward(self, high: torch.Tensor, low: torch.Tensor, close: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Calculate CCI values using PyTorch operations
@@ -79,29 +113,30 @@ class CciIndicator(BaseTorchIndicator):
         # Calculate typical price
         tp = (high + low + close) / 3.0
         
-        # Calculate SMA of typical price
-        sma_tp = self.torch_sma(tp, self.period)
-        
-        # Calculate Mean Deviation
-        # First create rolling windows of typical price
+        # Create rolling windows of typical price
         rolling_tp = tp.unfold(0, self.period, 1)
         
-        # Calculate absolute deviations from SMA for each window
-        deviations = torch.abs(rolling_tp - sma_tp.unsqueeze(1))
+        # Calculate SMA for each window
+        sma_tp = torch.mean(rolling_tp, dim=1)
         
-        # Calculate mean deviation
+        # Calculate mean deviation for each window
+        deviations = torch.abs(rolling_tp - sma_tp.unsqueeze(1))
         mean_dev = torch.mean(deviations, dim=1)
         
+        # Calculate CCI for valid windows
+        cci_valid = (tp[self.period-1:] - sma_tp) / (self.constant * mean_dev)
+        
         # Add padding for the initial values
-        padding = torch.full((self.period - 1,), torch.nan, device=self.device)
-        mean_dev = torch.cat([padding, mean_dev])
+        padding = torch.full((self.period - 1,), torch.nan, device=self.device, dtype=self.dtype)
+        cci = torch.cat([padding, cci_valid])
         
-        # Calculate CCI
-        cci = (tp - sma_tp) / (self.constant * mean_dev)
+        # Generate signals (ignore NaN values)
+        buy_signals = torch.zeros_like(cci, dtype=self.dtype)
+        sell_signals = torch.zeros_like(cci, dtype=self.dtype)
         
-        # Generate signals
-        buy_signals = (cci < self.oversold).float()
-        sell_signals = (cci > self.overbought).float()
+        valid_mask = ~torch.isnan(cci)
+        buy_signals[valid_mask] = (cci[valid_mask] < self.oversold).to(self.dtype)
+        sell_signals[valid_mask] = (cci[valid_mask] > self.overbought).to(self.dtype)
         
         return {
             'cci': cci,
@@ -120,9 +155,9 @@ class CciIndicator(BaseTorchIndicator):
             Dictionary with CCI values and signals
         """
         # Convert price data to tensors
-        high = self.to_tensor(data['high'])
-        low = self.to_tensor(data['low'])
-        close = self.to_tensor(data['close'])
+        high = self.to_tensor(data['high'].values)
+        low = self.to_tensor(data['low'].values)
+        close = self.to_tensor(data['close'].values)
         
         # Calculate CCI and signals
         with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
@@ -198,7 +233,7 @@ class CciIndicator(BaseTorchIndicator):
         return {
             'total_trades': self.metrics.total_trades,
             'win_rate': self.metrics.win_rate,
-            'profit_factor': self.metrics.profit_factor,
             'avg_win': self.metrics.avg_win,
-            'avg_loss': self.metrics.avg_loss
+            'avg_loss': self.metrics.avg_loss,
+            'profit_factor': self.metrics.profit_factor
         } 

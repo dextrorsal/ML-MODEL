@@ -23,10 +23,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 from ....features.technical.indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
-from ....features.technical.indicators.rsi import RsiIndicator
-from ....features.technical.indicators.cci import CciIndicator
+from ....features.technical.indicators.rsi import RSIIndicator
+from ....features.technical.indicators.cci import CCIIndicator
 from ....features.technical.indicators.wave_trend import WaveTrendIndicator
 from ....features.technical.indicators.adx import ADXIndicator
+from contextlib import nullcontext
 
 class Direction(Enum):
     """Trading direction enumeration"""
@@ -49,6 +50,11 @@ class LorentzianSettings:
     use_volatility_filter: bool = True
     use_regime_filter: bool = True
     use_adx_filter: bool = True
+    use_amp: bool = False
+    
+    # Device Settings
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype: torch.dtype = torch.float32
     
     # Feature Parameters
     momentum_lookback: int = 20
@@ -121,11 +127,11 @@ class LorentzianClassifier(BaseTorchIndicator):
         self.features = MLFeatures()
         
         # Initialize indicators exactly as in TradingView
-        self.rsi1 = RsiIndicator(period=14, config=torch_config)  # Feature 1: RSI(14)
+        self.rsi1 = RSIIndicator(period=14, config=torch_config)  # Feature 1: RSI(14)
         self.wt = WaveTrendIndicator(config=torch_config)         # Feature 2: WT(10,11)
-        self.cci = CciIndicator(period=20, config=torch_config)   # Feature 3: CCI(20)
+        self.cci = CCIIndicator(period=20, config=torch_config)   # Feature 3: CCI(20)
         self.adx = ADXIndicator(period=20, config=torch_config)   # Feature 4: ADX(20)
-        self.rsi2 = RsiIndicator(period=9, config=torch_config)   # Feature 5: RSI(9)
+        self.rsi2 = RSIIndicator(period=9, config=torch_config)   # Feature 5: RSI(9)
         
         # Initialize kernels
         self.momentum_kernel = self._create_lorentzian_kernel(

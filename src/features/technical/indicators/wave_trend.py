@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from contextlib import nullcontext
 
 @dataclass
 class WaveTrendMetrics:
@@ -30,6 +31,18 @@ class WaveTrendMetrics:
     avg_loss: float = 0.0
     profit_factor: float = 0.0
 
+@dataclass
+class WaveTrendConfig(TorchIndicatorConfig):
+    """Configuration for WaveTrend indicator"""
+    channel_length: int = 10
+    average_length: int = 21
+    smoothing_length: int = 4
+    overbought: float = 60.0
+    oversold: float = -60.0
+    device: Optional[str] = None
+    dtype: Optional[torch.dtype] = None
+    use_amp: bool = False
+
 class WaveTrendIndicator(BaseTorchIndicator):
     """
     PyTorch-based WaveTrend implementation with advanced features
@@ -39,31 +52,98 @@ class WaveTrendIndicator(BaseTorchIndicator):
         self,
         channel_length: int = 10,
         average_length: int = 11,
+        smoothing_length: int = 4,
         overbought: float = 60.0,
         oversold: float = -60.0,
-        config: Optional[TorchIndicatorConfig] = None
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
+        config: Optional[WaveTrendConfig] = None
     ):
         """
         Initialize WaveTrend indicator with PyTorch backend
         
         Args:
-            channel_length: The channel length for initial calculations
-            average_length: The average length for the wave trend
+            channel_length: Length of the channel period
+            average_length: Length of the average period
+            smoothing_length: Length of the smoothing SMA
             overbought: Overbought threshold
             oversold: Oversold threshold
-            config: Optional PyTorch configuration
+            device: Device to use for computations
+            dtype: Data type to use for computations
+            config: Configuration object
         """
+        if config is None:
+            config = WaveTrendConfig(
+                channel_length=channel_length,
+                average_length=average_length,
+                smoothing_length=smoothing_length,
+                overbought=overbought,
+                oversold=oversold,
+                device=device,
+                dtype=dtype
+            )
         super().__init__(config)
         
-        self.channel_length = channel_length
-        self.average_length = average_length
-        self.overbought = overbought
-        self.oversold = oversold
+        self._channel_length = config.channel_length
+        self._average_length = config.average_length
+        self._smoothing_length = config.smoothing_length
+        self._overbought = config.overbought
+        self._oversold = config.oversold
         
         # Trading metrics
         self.metrics = WaveTrendMetrics()
         self.last_price = None
         
+    @property
+    def channel_length(self) -> int:
+        """Get channel length"""
+        return self._channel_length
+
+    @channel_length.setter 
+    def channel_length(self, value: int):
+        """Set channel length"""
+        self._channel_length = value
+
+    @property
+    def average_length(self) -> int:
+        """Get average length"""
+        return self._average_length
+
+    @average_length.setter
+    def average_length(self, value: int):
+        """Set average length"""
+        self._average_length = value
+        
+    @property
+    def smoothing_length(self) -> int:
+        """Get smoothing length"""
+        return self._smoothing_length
+        
+    @smoothing_length.setter
+    def smoothing_length(self, value: int):
+        """Set smoothing length"""
+        self._smoothing_length = value
+        
+    @property
+    def overbought(self) -> float:
+        """Get overbought threshold"""
+        return self._overbought
+        
+    @overbought.setter
+    def overbought(self, value: float):
+        """Set overbought threshold"""
+        self._overbought = value
+        
+    @property
+    def oversold(self) -> float:
+        """Get oversold threshold"""
+        return self._oversold
+    
+    @oversold.setter
+    def oversold(self, value: float):
+        """Set oversold threshold"""
+        self._oversold = value
+    
     def forward(self, high: torch.Tensor, low: torch.Tensor, close: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Calculate WaveTrend values using PyTorch operations
@@ -76,30 +156,41 @@ class WaveTrendIndicator(BaseTorchIndicator):
         Returns:
             Dictionary with WaveTrend values and signals
         """
-        # Calculate HLC3 (typical price)
+        # Calculate typical price
         hlc3 = (high + low + close) / 3.0
         
-        # Calculate ESA = EMA(HLC3, channel_length)
-        esa = self.torch_ema(hlc3, alpha=2.0/(self.channel_length + 1))
+        # Calculate first smoothing
+        esa = self.ema(hlc3, self.channel_length)
         
-        # Calculate absolute difference
-        abs_diff = torch.abs(hlc3 - esa)
+        # Calculate absolute price distance
+        d = torch.abs(hlc3 - esa)
         
-        # Calculate D = EMA(abs(HLC3 - ESA), channel_length)
-        d = self.torch_ema(abs_diff, alpha=2.0/(self.channel_length + 1))
+        # Calculate second smoothing
+        d_smooth = self.ema(d, self.channel_length)
         
-        # Calculate CI = (HLC3 - ESA) / (0.015 * D)
-        ci = (hlc3 - esa) / (0.015 * d)
+        # Calculate ci
+        ci = (hlc3 - esa) / (0.015 * d_smooth)
         
-        # Calculate Wave Trend = EMA(CI, average_length)
-        wt = self.torch_ema(ci, alpha=2.0/(self.average_length + 1))
+        # Calculate wt1 and wt2
+        wt1 = self.ema(ci, self.average_length)
+        wt2 = self.sma(wt1, self.smoothing_length)
+        
+        # Clamp values to ensure they stay within expected ranges
+        wt1 = torch.clamp(wt1, min=-100.0, max=100.0)
+        wt2 = torch.clamp(wt2, min=-100.0, max=100.0)
         
         # Generate signals
-        buy_signals = (wt < self.oversold).float()
-        sell_signals = (wt > self.overbought).float()
+        buy_signals = torch.zeros_like(wt1, dtype=self.dtype)
+        sell_signals = torch.zeros_like(wt1, dtype=self.dtype)
+        
+        # Calculate crossovers
+        valid_mask = ~torch.isnan(wt1) & ~torch.isnan(wt2)
+        buy_signals[valid_mask] = (wt1[valid_mask] > wt2[valid_mask]).to(self.dtype)
+        sell_signals[valid_mask] = (wt1[valid_mask] < wt2[valid_mask]).to(self.dtype)
         
         return {
-            'wt': wt,
+            'wt1': wt1,
+            'wt2': wt2,
             'buy_signals': buy_signals,
             'sell_signals': sell_signals
         }
@@ -176,7 +267,8 @@ class WaveTrendIndicator(BaseTorchIndicator):
             ax1.legend()
             
             # Plot WaveTrend
-            ax2.plot(df.index, signals['wt'], label='WaveTrend', color='blue')
+            ax2.plot(df.index, signals['wt1'], label='WaveTrend 1', color='blue')
+            ax2.plot(df.index, signals['wt2'], label='WaveTrend 2', color='orange')
             ax2.axhline(y=self.overbought, color='r', linestyle='--', alpha=0.5)
             ax2.axhline(y=self.oversold, color='g', linestyle='--', alpha=0.5)
             ax2.axhline(y=0, color='gray', linestyle='-', alpha=0.3)

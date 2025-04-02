@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -31,18 +32,27 @@ from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 from ....features.technical.indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
 from models.configs import TradingConfig
+from contextlib import nullcontext
 
 @dataclass
 class LogisticConfig:
-    """Configuration for Logistic Regression"""
-    lookback: int = 20
-    learning_rate: float = 0.001
+    """Configuration for logistic regression model"""
+    use_deep: bool = False
+    use_amp: bool = False
+    learning_rate: float = 0.01
     batch_size: int = 32
     epochs: int = 100
-    use_deep: bool = False
+    hidden_size: int = 8
+    num_layers: int = 3
+    dropout: float = 0.1
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype: torch.dtype = torch.float32
+    lookback: int = 20
     threshold: float = 0.5
     volatility_filter: bool = True
     volume_filter: bool = True
+    input_size: int = 1
+    num_epochs: int = 100
 
 @dataclass
 class BacktestMetrics:
@@ -187,9 +197,9 @@ class LogisticRegressionTorch(nn.Module):
         """Forward pass through the selected network"""
         return self.deep_network(x) if self.use_deep else self.logistic(x)
 
-class EnhancedLogisticRegressionIndicator(BaseTorchIndicator):
+class LogisticRegression(BaseTorchIndicator):
     """
-    Enhanced Logistic Regression indicator with PyTorch backend.
+    Logistic Regression indicator with PyTorch backend.
     
     This indicator combines traditional logistic regression with modern deep learning,
     providing both simple and complex models for trading signal generation.
@@ -246,26 +256,37 @@ class EnhancedLogisticRegressionIndicator(BaseTorchIndicator):
         
         return features
         
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """
-        Forward pass through the model
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model
         
         Args:
-            x: Input tensor of shape (batch_size, n_features)
+            x: Input tensor of shape (batch_size, n_features) or (n_features,)
             
         Returns:
-            Dictionary with predictions and signals
+            Tensor of predictions
         """
+        # Add batch dimension if input is 1D
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+        # Flatten if input has more than 2 dimensions
+        elif x.dim() > 2:
+            x = x.view(x.size(0), -1)
+            
+        # Get predictions from model
         predictions = self.model(x)
         
-        # Generate signals
-        buy_signals = (predictions > self.config.threshold).float()
-        sell_signals = (predictions < (1 - self.config.threshold)).float()
+        # Generate signals based on predictions
+        buy_signals = torch.zeros_like(predictions, dtype=self.dtype)
+        sell_signals = torch.zeros_like(predictions, dtype=self.dtype)
+        
+        # Set signals based on threshold
+        buy_signals[predictions > self.threshold] = 1
+        sell_signals[predictions < -self.threshold] = 1
         
         return {
-            'predictions': predictions,
-            'buy_signals': buy_signals,
-            'sell_signals': sell_signals
+            'predictions': predictions.squeeze(),
+            'buy_signals': buy_signals.squeeze(),
+            'sell_signals': sell_signals.squeeze()
         }
     
     def calculate_signals(self, data: pd.DataFrame) -> Dict[str, torch.Tensor]:

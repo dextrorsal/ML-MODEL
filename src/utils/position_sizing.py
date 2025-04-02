@@ -1,5 +1,13 @@
+"""
+Position Sizing Utilities
+
+This module provides functions for calculating appropriate position sizes
+based on account balance, risk parameters, and market conditions.
+"""
+
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
+import numpy as np
 
 @dataclass
 class MarketConditions:
@@ -113,3 +121,123 @@ class PositionSizer:
             scale_levels[price_level] = additional_size
             
         return scale_levels 
+
+def calculate_position_size(
+    capital: float,
+    risk_per_trade: float = 0.02,  # 2% risk per trade
+    stop_distance: Optional[float] = None,
+    volatility_factor: Optional[float] = None,
+    min_position: float = 0.01,  # Minimum position size
+    max_position: float = 1.0    # Maximum position size as fraction of capital
+) -> float:
+    """
+    Calculate position size based on capital and risk parameters.
+    
+    Args:
+        capital: Current account capital
+        risk_per_trade: Maximum risk per trade as decimal (default 0.02 = 2%)
+        stop_distance: Distance to stop loss in price units
+        volatility_factor: Optional volatility scaling factor
+        min_position: Minimum position size allowed
+        max_position: Maximum position size as fraction of capital
+        
+    Returns:
+        Position size in base currency units
+    """
+    # Calculate risk amount in currency
+    risk_amount = capital * risk_per_trade
+    
+    # Adjust for volatility if provided
+    if volatility_factor is not None:
+        risk_amount = risk_amount * (1 / volatility_factor)
+    
+    # Calculate position size based on stop distance
+    if stop_distance is not None and stop_distance > 0:
+        position_size = risk_amount / stop_distance
+    else:
+        # Default to simple percentage of capital if no stop distance
+        position_size = capital * risk_per_trade
+    
+    # Apply min/max constraints
+    position_size = np.clip(
+        position_size,
+        capital * min_position,
+        capital * max_position
+    )
+    
+    return float(position_size)
+
+def calculate_kelly_position(
+    win_rate: float,
+    avg_win: float,
+    avg_loss: float,
+    capital: float,
+    max_kelly: float = 0.2  # Cap Kelly fraction at 20%
+) -> float:
+    """
+    Calculate position size using the Kelly Criterion.
+    
+    Args:
+        win_rate: Historical win rate as decimal
+        avg_win: Average winning trade amount
+        avg_loss: Average losing trade amount (positive number)
+        capital: Current account capital
+        max_kelly: Maximum Kelly fraction to use
+        
+    Returns:
+        Position size based on Kelly Criterion
+    """
+    try:
+        # Kelly formula: f = (bp - q) / b
+        # where: b = win/loss ratio, p = win probability, q = loss probability
+        b = avg_win / avg_loss
+        p = win_rate
+        q = 1 - p
+        
+        kelly = (b * p - q) / b
+        
+        # Cap the Kelly fraction
+        kelly = min(kelly, max_kelly)
+        
+        # Ensure non-negative
+        kelly = max(0, kelly)
+        
+        return capital * kelly
+        
+    except ZeroDivisionError:
+        return 0.0
+    except Exception as e:
+        print(f"Error calculating Kelly position size: {str(e)}")
+        return 0.0
+
+def adjust_for_correlation(
+    base_size: float,
+    correlation: float,
+    max_reduction: float = 0.5  # Maximum position reduction
+) -> float:
+    """
+    Adjust position size based on correlation with existing positions.
+    
+    Args:
+        base_size: Original calculated position size
+        correlation: Correlation coefficient (-1 to 1)
+        max_reduction: Maximum position size reduction
+        
+    Returns:
+        Adjusted position size
+    """
+    try:
+        # Convert correlation to positive scale
+        pos_corr = abs(correlation)
+        
+        # Calculate reduction factor (higher correlation = more reduction)
+        reduction = pos_corr * max_reduction
+        
+        # Apply reduction
+        adjusted_size = base_size * (1 - reduction)
+        
+        return max(0, adjusted_size)
+        
+    except Exception as e:
+        print(f"Error adjusting position for correlation: {str(e)}")
+        return base_size 

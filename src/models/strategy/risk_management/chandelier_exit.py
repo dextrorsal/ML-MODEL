@@ -1,120 +1,185 @@
 import pandas as pd
 import numpy as np
+import torch
+from dataclasses import dataclass
+from typing import Dict, Optional
+from src.features.technical.indicators.base_torch_indicator import BaseTorchIndicator
+from contextlib import nullcontext
 
-def chandelier_exit(df, atr_period=22, atr_multiplier=3.0, use_close=True):
+@dataclass
+class ChandelierConfig:
+    """Configuration for Chandelier Exit"""
+    atr_period: int = 22
+    atr_multiplier: float = 3.0
+    use_close: bool = False
+    device: Optional[str] = None
+    dtype: Optional[torch.dtype] = None
+    use_amp: bool = False
+
+class ChandelierExit(BaseTorchIndicator):
     """
-    Calculate Chandelier Exit indicator for risk management.
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        DataFrame containing 'open', 'high', 'low', 'close' price data
-    atr_period : int, default=22
-        Period for ATR calculation
-    atr_multiplier : float, default=3.0
-        Multiplier for ATR to determine stop distance
-    use_close : bool, default=True
-        Whether to use close price for calculating extremums
-        
-    Returns:
-    --------
-    pandas.DataFrame
-        DataFrame with original data plus:
-        - long_stop: Long stop level (for short trades)
-        - short_stop: Short stop level (for long trades)
-        - dir: Direction (1=long, -1=short)
-        - buy_signal: Boolean, True when signal changes to buy
-        - sell_signal: Boolean, True when signal changes to sell
+    Chandelier Exit indicator for risk management.
+    Provides trailing stop levels based on ATR.
     """
-    # Make a copy of the dataframe to avoid modifying the original
-    result = df.copy()
     
-    # Calculate ATR
-    result['tr'] = calculate_true_range(result)
-    result['atr'] = calculate_atr(result['tr'], atr_period)
-    
-    # Calculate highest high and lowest low
-    if use_close:
-        result['highest'] = result['close'].rolling(window=atr_period).max()
-        result['lowest'] = result['close'].rolling(window=atr_period).min()
-    else:
-        result['highest'] = result['high'].rolling(window=atr_period).max()
-        result['lowest'] = result['low'].rolling(window=atr_period).min()
-    
-    # Initialize long_stop and short_stop columns
-    result['long_stop'] = result['highest'] - (atr_multiplier * result['atr'])
-    result['short_stop'] = result['lowest'] + (atr_multiplier * result['atr'])
-    
-    # Create columns for previous values
-    result['long_stop_prev'] = result['long_stop'].shift(1)
-    result['short_stop_prev'] = result['short_stop'].shift(1)
-    
-    # Replace NaN values with current values
-    result['long_stop_prev'] = result['long_stop_prev'].fillna(result['long_stop'])
-    result['short_stop_prev'] = result['short_stop_prev'].fillna(result['short_stop'])
-    
-    # Apply the trailing stop logic
-    for i in range(1, len(result)):
-        prev_close = result.iloc[i-1]['close']
-        prev_long_stop = result.iloc[i-1]['long_stop']
-        prev_short_stop = result.iloc[i-1]['short_stop']
-        
-        # Long stop logic
-        if prev_close > prev_long_stop:
-            result.loc[result.index[i], 'long_stop'] = max(
-                result.iloc[i]['long_stop'],
-                prev_long_stop
+    def __init__(
+        self,
+        atr_period: int = 22,
+        atr_multiplier: float = 3.0,
+        use_close: bool = False,
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
+        config: Optional[ChandelierConfig] = None
+    ):
+        """Initialize with configuration"""
+        if config is None:
+            config = ChandelierConfig(
+                atr_period=atr_period,
+                atr_multiplier=atr_multiplier,
+                use_close=use_close,
+                device=device,
+                dtype=dtype
             )
+        super().__init__(config)
+        self.device = self.config.device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.dtype = self.config.dtype or torch.float32
         
-        # Short stop logic
-        if prev_close < prev_short_stop:
-            result.loc[result.index[i], 'short_stop'] = min(
-                result.iloc[i]['short_stop'],
-                prev_short_stop
-            )
-    
-    # Initialize direction column (1 for long, -1 for short)
-    result['dir'] = 1  # default to long
-    
-    # Calculate direction based on price vs stops
-    for i in range(1, len(result)):
-        prev_close = result.iloc[i-1]['close']
-        long_stop_prev = result.iloc[i-1]['long_stop']
-        short_stop_prev = result.iloc[i-1]['short_stop']
+    @property
+    def atr_period(self) -> int:
+        return self.config.atr_period
         
-        if prev_close > short_stop_prev:
-            result.loc[result.index[i], 'dir'] = 1
-        elif prev_close < long_stop_prev:
-            result.loc[result.index[i], 'dir'] = -1
+    @property
+    def atr_multiplier(self) -> float:
+        return self.config.atr_multiplier
+        
+    @property
+    def use_close(self) -> bool:
+        return self.config.use_close
+        
+    def calculate_atr(self, high: torch.Tensor, low: torch.Tensor, close: torch.Tensor) -> torch.Tensor:
+        """Calculate Average True Range using PyTorch operations"""
+        high_low = high - low
+        high_close_prev = torch.abs(high - torch.roll(close, 1))
+        low_close_prev = torch.abs(low - torch.roll(close, 1))
+        
+        # Handle first element where prev close doesn't exist
+        high_close_prev[0] = high_low[0]
+        low_close_prev[0] = high_low[0]
+        
+        tr = torch.maximum(high_low, torch.maximum(high_close_prev, low_close_prev))
+        atr = self.torch_ema(tr, alpha=2.0/(self.atr_period + 1))
+        
+        return atr
+        
+    def forward(self, high: torch.Tensor, low: torch.Tensor, close: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Calculate Chandelier Exit levels"""
+        # Calculate ATR
+        atr = self.calculate_atr(high, low, close)
+        
+        # Calculate highest high and lowest low over lookback period
+        highest_high = self.calculate_rolling_max(high if not self.use_close else close, self.atr_period)
+        lowest_low = self.calculate_rolling_min(low if not self.use_close else close, self.atr_period)
+        
+        # Calculate long and short stop levels
+        long_stop = highest_high - self.atr_multiplier * atr
+        short_stop = lowest_low + self.atr_multiplier * atr
+        
+        # Generate signals based on price crossing stop levels
+        buy_signals = torch.zeros_like(close, dtype=self.dtype, device=self.device)
+        sell_signals = torch.zeros_like(close, dtype=self.dtype, device=self.device)
+        
+        # Buy when price crosses above long stop
+        buy_signals[1:] = (close[1:] > long_stop[1:]) & (close[:-1] <= long_stop[:-1])
+        
+        # Sell when price crosses below short stop
+        sell_signals[1:] = (close[1:] < short_stop[1:]) & (close[:-1] >= short_stop[:-1])
+        
+        return {
+            'long_stop': long_stop,
+            'short_stop': short_stop,
+            'buy_signals': buy_signals,
+            'sell_signals': sell_signals
+        }
+
+    def calculate_signals(self, data: pd.DataFrame) -> Dict[str, torch.Tensor]:
+        """Calculate Chandelier Exit signals from OHLCV data
+        
+        Args:
+            data: DataFrame with OHLCV data
+            
+        Returns:
+            Dictionary with long_stop, short_stop, buy_signals and sell_signals
+        """
+        high = self.to_tensor(data['high'])
+        low = self.to_tensor(data['low']) 
+        close = self.to_tensor(data['close'])
+        
+        with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
+            return self.forward(high, low, close)
+
+    def update_stops(self, current_price: float, position_type: str, current_stop: float) -> float:
+        """
+        Update stop levels for an open position.
+        
+        Args:
+            current_price: Current market price
+            position_type: 'long' or 'short'
+            current_stop: Current stop level
+            
+        Returns:
+            Updated stop level
+        """
+        price_tensor = torch.tensor([[current_price]], dtype=self.dtype, device=self.device)
+        signals = self.forward(price_tensor, price_tensor, price_tensor)
+        
+        if position_type.lower() == 'long':
+            return float(signals['long_stop'].item())
         else:
-            result.loc[result.index[i], 'dir'] = result.iloc[i-1]['dir']
-    
-    # Calculate buy/sell signals
-    result['prev_dir'] = result['dir'].shift(1).fillna(1)
-    result['buy_signal'] = (result['dir'] == 1) & (result['prev_dir'] == -1)
-    result['sell_signal'] = (result['dir'] == -1) & (result['prev_dir'] == 1)
-    
-    # Clean up temporary columns
-    result = result.drop(['tr', 'highest', 'lowest', 'long_stop_prev', 
-                         'short_stop_prev', 'prev_dir'], axis=1)
-    
-    return result
+            return float(signals['short_stop'].item())
 
-def calculate_true_range(df):
-    """Calculate True Range for ATR computation"""
-    high_low = df['high'] - df['low']
-    high_close_prev = abs(df['high'] - df['close'].shift(1))
-    low_close_prev = abs(df['low'] - df['close'].shift(1))
-    
-    ranges = pd.concat([high_low, high_close_prev, low_close_prev], axis=1)
-    true_range = ranges.max(axis=1)
-    
-    return true_range
+    def calculate_rolling_max(self, x: torch.Tensor, window: int) -> torch.Tensor:
+        """Calculate rolling maximum over a window
+        
+        Args:
+            x: Input tensor
+            window: Window size
+            
+        Returns:
+            Rolling maximum tensor
+        """
+        # Create rolling windows
+        x_unfold = x.unfold(0, window, 1)
+        
+        # Calculate max for each window
+        rolling_max = torch.max(x_unfold, dim=1)[0]
+        
+        # Pad initial values
+        padding = torch.full((window - 1,), float('nan'), device=self.device, dtype=self.dtype)
+        rolling_max = torch.cat([padding, rolling_max])
+        
+        return rolling_max
 
-def calculate_atr(tr_series, period):
-    """Calculate Average True Range"""
-    atr = tr_series.rolling(window=period).mean()
-    return atr
+    def calculate_rolling_min(self, x: torch.Tensor, window: int) -> torch.Tensor:
+        """Calculate rolling minimum over a window
+        
+        Args:
+            x: Input tensor
+            window: Window size
+            
+        Returns:
+            Rolling minimum tensor
+        """
+        # Create rolling windows
+        x_unfold = x.unfold(0, window, 1)
+        
+        # Calculate min for each window
+        rolling_min = torch.min(x_unfold, dim=1)[0]
+        
+        # Pad initial values
+        padding = torch.full((window - 1,), float('nan'), device=self.device, dtype=self.dtype)
+        rolling_min = torch.cat([padding, rolling_min])
+        
+        return rolling_min
 
 def calculate_ohlc4(df):
     """Calculate OHLC4 (average of open, high, low, close)"""
@@ -133,8 +198,10 @@ if __name__ == "__main__":
     df = pd.DataFrame(data)
     
     # Calculate Chandelier Exit
-    result = chandelier_exit(df, atr_period=3, atr_multiplier=2.0)
+    config = ChandelierConfig(atr_period=3, atr_multiplier=2.0)
+    chandelier = ChandelierExit(config)
+    result = chandelier.forward(torch.tensor(df['high'].values), torch.tensor(df['low'].values), torch.tensor(df['close'].values))
     
     # Print results
     print("Chandelier Exit Results:")
-    print(result[['open', 'high', 'low', 'close', 'atr', 'long_stop', 'short_stop', 'dir', 'buy_signal', 'sell_signal']])
+    print(result)

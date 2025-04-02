@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from contextlib import nullcontext
 
 @dataclass
 class RsiMetrics:
@@ -30,71 +31,92 @@ class RsiMetrics:
     avg_loss: float = 0.0
     profit_factor: float = 0.0
 
-class RsiIndicator(BaseTorchIndicator):
-    """
-    PyTorch-based RSI implementation with advanced features
-    """
+@dataclass
+class RSIConfig(TorchIndicatorConfig):
+    """Configuration for RSI indicator"""
+    period: int = 14
+    overbought: float = 70.0
+    oversold: float = 30.0
+
+class RSIIndicator(BaseTorchIndicator):
+    """PyTorch-based RSI implementation"""
     
     def __init__(
         self,
         period: int = 14,
-        smoothing: int = 1,
         overbought: float = 70.0,
         oversold: float = 30.0,
-        config: Optional[TorchIndicatorConfig] = None
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        config: Optional[RSIConfig] = None
     ):
-        """
-        Initialize RSI indicator with PyTorch backend
-        
-        Args:
-            period: RSI calculation period
-            smoothing: Smoothing factor for RSI
-            overbought: Overbought threshold
-            oversold: Oversold threshold
-            config: Optional PyTorch configuration
-        """
+        """Initialize RSI indicator with PyTorch backend"""
+        if config is None:
+            config = RSIConfig(
+                period=period,
+                overbought=overbought,
+                oversold=oversold,
+                device=device,
+                dtype=dtype
+            )
         super().__init__(config)
-        
-        self.period = period
-        self.smoothing = smoothing
-        self.overbought = overbought
-        self.oversold = oversold
+        self.config = config
         
         # Trading metrics
         self.metrics = RsiMetrics()
         
         # Initialize learnable parameters if needed
-        self.alpha = nn.Parameter(torch.tensor(2.0 / (period + 1)))
+        self.alpha = nn.Parameter(torch.tensor(2.0 / (self.config.period + 1)))
         
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+    @property
+    def period(self) -> int:
+        return self.config.period
+        
+    @property
+    def overbought(self) -> float:
+        return self.config.overbought
+        
+    @property
+    def oversold(self) -> float:
+        return self.config.oversold
+        
+    def forward(self, close: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Calculate RSI values using PyTorch operations
         
         Args:
-            x: Input price tensor
+            close: Close prices tensor
             
         Returns:
             Dictionary with RSI values and signals
         """
         # Calculate price changes
-        delta = x.diff()
+        price_diff = torch.diff(close, dim=0)
         
+        # Add padding for the first element
+        padding = torch.zeros(1, device=self.device, dtype=self.dtype)
+        price_diff = torch.cat([padding, price_diff])
+
         # Separate gains and losses
-        gains = torch.where(delta > 0, delta, torch.zeros_like(delta))
-        losses = torch.where(delta < 0, -delta, torch.zeros_like(delta))
-        
-        # Calculate smoothed averages using EMA
+        gains = torch.where(price_diff > 0, price_diff, torch.zeros_like(price_diff))
+        losses = torch.where(price_diff < 0, -price_diff, torch.zeros_like(price_diff))
+
+        # Calculate average gains and losses
         avg_gains = self.torch_ema(gains, self.alpha.item())
         avg_losses = self.torch_ema(losses, self.alpha.item())
-        
-        # Calculate RS and RSI
-        rs = avg_gains / (avg_losses + 1e-8)  # Add small epsilon to avoid division by zero
-        rsi = 100 - (100 / (1 + rs))
-        
+
+        # Calculate relative strength and RSI
+        rs = avg_gains / (avg_losses + 1e-10)  # Add small epsilon to avoid division by zero
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+
         # Generate signals
-        buy_signals = (rsi < self.oversold).float()
-        sell_signals = (rsi > self.overbought).float()
-        
+        buy_signals = torch.zeros_like(rsi, dtype=self.dtype)
+        sell_signals = torch.zeros_like(rsi, dtype=self.dtype)
+
+        valid_mask = ~torch.isnan(rsi)
+        buy_signals[valid_mask] = (rsi[valid_mask] < self.config.oversold).to(self.dtype)
+        sell_signals[valid_mask] = (rsi[valid_mask] > self.config.overbought).to(self.dtype)
+
         return {
             'rsi': rsi,
             'buy_signals': buy_signals,
@@ -172,8 +194,8 @@ class RsiIndicator(BaseTorchIndicator):
             
             # Plot RSI
             ax2.plot(df.index, signals['rsi'], label='RSI', color='blue')
-            ax2.axhline(y=self.overbought, color='r', linestyle='--', alpha=0.5)
-            ax2.axhline(y=self.oversold, color='g', linestyle='--', alpha=0.5)
+            ax2.axhline(y=self.config.overbought, color='r', linestyle='--', alpha=0.5)
+            ax2.axhline(y=self.config.oversold, color='g', linestyle='--', alpha=0.5)
             ax2.set_title('RSI')
             ax2.set_ylim(0, 100)
             

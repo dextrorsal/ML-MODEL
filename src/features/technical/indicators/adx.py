@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from contextlib import nullcontext
 
 @dataclass
 class AdxMetrics:
@@ -30,44 +31,54 @@ class AdxMetrics:
     avg_loss: float = 0.0
     profit_factor: float = 0.0
 
+@dataclass
+class ADXConfig(TorchIndicatorConfig):
+    """Configuration for ADX indicator"""
+    period: int = 14
+    threshold: float = 25.0
+
 class ADXIndicator(BaseTorchIndicator):
-    """
-    PyTorch-based ADX implementation matching TradingView
-    """
+    """PyTorch-based ADX implementation"""
     
     def __init__(
         self,
         period: int = 14,
         smoothing: int = 14,
         threshold: float = 25.0,
-        config: Optional[TorchIndicatorConfig] = None
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        config: Optional[ADXConfig] = None
     ):
-        """
-        Initialize ADX indicator with PyTorch backend
-        
-        Args:
-            period: ADX calculation period
-            smoothing: Smoothing period for DI calculations
-            threshold: ADX threshold for signal generation
-            config: Optional PyTorch configuration
-        """
+        """Initialize ADX indicator with PyTorch backend"""
+        if config is None:
+            config = ADXConfig(
+                period=period,
+                threshold=threshold,
+                device=device,
+                dtype=dtype
+            )
         super().__init__(config)
-        
-        self.period = period
+        self.config = config
         self.smoothing = smoothing
-        self.threshold = threshold
         
         # Trading metrics
         self.metrics = AdxMetrics()
         
+    @property
+    def period(self) -> int:
+        return self.config.period
+        
+    @property
+    def threshold(self) -> float:
+        return self.config.threshold
+    
     def forward(
         self,
         high: torch.Tensor,
         low: torch.Tensor,
         close: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        """
-        Calculate ADX values using PyTorch operations
+        """Calculate ADX indicator values
         
         Args:
             high: High prices tensor
@@ -75,56 +86,62 @@ class ADXIndicator(BaseTorchIndicator):
             close: Close prices tensor
             
         Returns:
-            Dictionary with ADX values and signals
+            Dictionary containing ADX values and signals
         """
         # Calculate True Range
-        prev_close = torch.roll(close, 1)
-        tr = torch.max(
-            torch.max(
-                high - low,
-                torch.abs(high - prev_close)
-            ),
-            torch.abs(low - prev_close)
-        )
+        prev_close = torch.cat([close[0:1], close[:-1]], dim=0)
+        high_low = high - low
+        high_close = torch.abs(high - prev_close)
+        low_close = torch.abs(low - prev_close)
+        tr = torch.maximum(high_low, torch.maximum(high_close, low_close))
+
+        # Calculate Directional Movement
+        high_diff = high[1:] - high[:-1]
+        low_diff = low[:-1] - low[1:]
         
-        # Calculate directional movement
-        pos_dm = high - torch.roll(high, 1)
-        neg_dm = torch.roll(low, 1) - low
+        pos_dm = torch.zeros_like(high)
+        neg_dm = torch.zeros_like(low)
         
-        pos_dm = torch.where(
-            (pos_dm > neg_dm) & (pos_dm > 0),
-            pos_dm,
-            torch.zeros_like(pos_dm)
-        )
-        neg_dm = torch.where(
-            (neg_dm > pos_dm) & (neg_dm > 0),
-            neg_dm,
-            torch.zeros_like(neg_dm)
-        )
+        # Pad first values
+        pos_dm[0] = 0
+        neg_dm[0] = 0
         
-        # Smooth the TR and DM
-        tr_smooth = self.torch_ema(tr, 2.0 / (self.smoothing + 1))
-        pos_dm_smooth = self.torch_ema(pos_dm, 2.0 / (self.smoothing + 1))
-        neg_dm_smooth = self.torch_ema(neg_dm, 2.0 / (self.smoothing + 1))
+        # Calculate remaining values
+        pos_dm[1:] = torch.where((high_diff > low_diff) & (high_diff > 0), high_diff, torch.zeros_like(high_diff))
+        neg_dm[1:] = torch.where((low_diff > high_diff) & (low_diff > 0), low_diff, torch.zeros_like(low_diff))
+
+        # Smooth TR and DM values
+        smoothed_tr = self.ema(tr, self.period)
+        smoothed_pos_dm = self.ema(pos_dm, self.period)
+        smoothed_neg_dm = self.ema(neg_dm, self.period)
+
+        # Calculate DI values
+        plus_di = (smoothed_pos_dm / (smoothed_tr + 1e-8)) * 100
+        minus_di = (smoothed_neg_dm / (smoothed_tr + 1e-8)) * 100
+
+        # Calculate DX and ADX
+        dx = torch.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-8) * 100
+        adx = self.ema(dx, self.period)
+
+        # Generate signals based on ADX threshold
+        valid_mask = ~torch.isnan(adx)
+        buy_signals = torch.zeros_like(adx, dtype=self.dtype)
+        sell_signals = torch.zeros_like(adx, dtype=self.dtype)
         
-        # Calculate the Directional Indexes
-        pdi = 100 * pos_dm_smooth / (tr_smooth + 1e-8)
-        ndi = 100 * neg_dm_smooth / (tr_smooth + 1e-8)
+        # Convert boolean conditions to float tensors
+        buy_conditions = ((adx > self.threshold) & (plus_di > minus_di)).to(self.dtype)
+        sell_conditions = ((adx > self.threshold) & (minus_di > plus_di)).to(self.dtype)
         
-        # Calculate the Directional Index
-        dx = 100 * torch.abs(pdi - ndi) / (pdi + ndi + 1e-8)
-        
-        # Calculate ADX
-        adx = self.torch_ema(dx, 2.0 / (self.period + 1))
-        
-        # Generate signals based on ADX strength
-        strong_trend = (adx > self.threshold).float()
-        
+        # Apply conditions where valid
+        buy_signals[valid_mask] = buy_conditions[valid_mask]
+        sell_signals[valid_mask] = sell_conditions[valid_mask]
+
         return {
             'adx': adx,
-            'pdi': pdi,
-            'ndi': ndi,
-            'strong_trend': strong_trend
+            '+di': plus_di,
+            '-di': minus_di,
+            'buy_signals': buy_signals,
+            'sell_signals': sell_signals
         }
     
     def calculate_signals(self, data: pd.DataFrame) -> Dict[str, torch.Tensor]:
@@ -190,8 +207,8 @@ class ADXIndicator(BaseTorchIndicator):
             
             # Plot ADX
             ax2.plot(df.index, signals['adx'], label='ADX', color='blue')
-            ax2.plot(df.index, signals['pdi'], label='+DI', color='green')
-            ax2.plot(df.index, signals['ndi'], label='-DI', color='red')
+            ax2.plot(df.index, signals['+di'], label='+DI', color='green')
+            ax2.plot(df.index, signals['-di'], label='-DI', color='red')
             ax2.axhline(y=self.threshold, color='gray', linestyle='--', alpha=0.5)
             ax2.set_title('ADX')
             ax2.legend()

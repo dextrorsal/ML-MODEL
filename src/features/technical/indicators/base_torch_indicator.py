@@ -33,18 +33,70 @@ class BaseTorchIndicator(nn.Module):
     def __init__(self, config: Optional[TorchIndicatorConfig] = None):
         super().__init__()
         self.config = config or TorchIndicatorConfig()
-        self.device = torch.device(self.config.device)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if self.config.device is None else torch.device(self.config.device)
+        self.dtype = torch.float32 if self.config.dtype is None else self.config.dtype
         self.scaler = torch.amp.GradScaler('cuda') if self.config.use_amp else None
         
-    def to_tensor(self, data: Union[np.ndarray, pd.Series, torch.Tensor]) -> torch.Tensor:
-        """Convert input data to PyTorch tensor"""
-        if isinstance(data, torch.Tensor):
-            return data.to(device=self.device, dtype=self.config.dtype)
-        elif isinstance(data, pd.Series):
-            return torch.tensor(data.values, device=self.device, dtype=self.config.dtype)
-        else:
-            return torch.tensor(data, device=self.device, dtype=self.config.dtype)
+    def to_tensor(self, data: Union[pd.Series, np.ndarray, torch.Tensor]) -> torch.Tensor:
+        """Convert input data to tensor"""
+        if isinstance(data, pd.Series):
+            data = data.values
+        if isinstance(data, np.ndarray):
+            data = torch.from_numpy(data)
+        return data.to(self.device).to(self.dtype)
+
+    def ema(self, data: torch.Tensor, period: int) -> torch.Tensor:
+        """Calculate Exponential Moving Average (EMA)
+        
+        Args:
+            data: Input tensor
+            period: EMA period
             
+        Returns:
+            EMA values as tensor
+        """
+        alpha = 2.0 / (period + 1)
+        kernel = torch.tensor([(1-alpha)**i for i in range(period)], device=self.device, dtype=self.dtype)
+        kernel = kernel / kernel.sum()
+        
+        # Pad the input data
+        padding = torch.full((period-1,), data[0].item(), device=self.device, dtype=self.dtype)
+        padded_data = torch.cat([padding, data])
+        
+        # Calculate EMA using convolution
+        ema_values = torch.nn.functional.conv1d(
+            padded_data.view(1, 1, -1), 
+            kernel.view(1, 1, -1), 
+            padding=period-1
+        )
+        
+        return ema_values.view(-1)[:len(data)]
+
+    def sma(self, data: torch.Tensor, period: int) -> torch.Tensor:
+        """Calculate Simple Moving Average (SMA)
+        
+        Args:
+            data: Input tensor
+            period: SMA period
+            
+        Returns:
+            SMA values as tensor
+        """
+        kernel = torch.ones(period, device=self.device, dtype=self.dtype) / period
+        
+        # Pad the input data
+        padding = torch.full((period-1,), data[0].item(), device=self.device, dtype=self.dtype)
+        padded_data = torch.cat([padding, data])
+        
+        # Calculate SMA using convolution
+        sma_values = torch.nn.functional.conv1d(
+            padded_data.view(1, 1, -1), 
+            kernel.view(1, 1, -1), 
+            padding=period-1
+        )
+        
+        return sma_values.view(-1)[:len(data)]
+
     @staticmethod
     def torch_sma(x: torch.Tensor, window: int) -> torch.Tensor:
         """GPU-accelerated Simple Moving Average"""
@@ -64,16 +116,15 @@ class BaseTorchIndicator(nn.Module):
         if len(x) == 0:
             return x
             
-        # Initialize weights for EMA
-        weights = (1 - alpha) ** torch.arange(len(x), device=x.device, dtype=x.dtype)
-        weights = weights / weights.sum()
+        # Initialize output tensor
+        result = torch.zeros_like(x)
+        result[0] = x[0]  # First value is same as input
         
-        # Use convolution for efficient calculation
-        return F.conv1d(
-            x.view(1, 1, -1),
-            weights.view(1, 1, -1),
-            padding=len(x)-1
-        ).view(-1)
+        # Calculate EMA
+        for i in range(1, len(x)):
+            result[i] = alpha * x[i] + (1 - alpha) * result[i-1]
+        
+        return result
     
     @staticmethod
     def torch_stddev(x: torch.Tensor, window: int) -> torch.Tensor:
