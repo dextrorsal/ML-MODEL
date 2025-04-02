@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
-from ..base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
 
 @dataclass
 class WaveTrendMetrics:

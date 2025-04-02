@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional
 from .patterns.smart_money_concepts import SmartMoneyAnalyzer
 from .patterns.geometric_patterns import GeometricPatternDetector, PatternType
-from .technical.indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from .technical.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
 
 class PatternFeatureExtractor(BaseTorchIndicator):
     def __init__(

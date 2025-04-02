@@ -29,8 +29,8 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
-from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
-from src.core.config import Config
+from ....features.technical.indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from models.configs import TradingConfig
 
 @dataclass
 class LogisticConfig:

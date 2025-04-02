@@ -21,23 +21,47 @@ Dive deeper into the project with our comprehensive documentation:
 
 ## 🌟 Features
 
-### 📊 Advanced Technical Indicators
-- **Lorentzian Classification**: State-of-the-art price action classification
-- **Enhanced Logistic Regression**: Probability-based trend detection
-- **Custom Indicators**: Specialized RSI and CCI implementations
-- **Wave Trend Analysis**: Advanced momentum detection
+### 🎯 Trading Strategy Components
+- **Primary Signal Generation**: Lorentzian Classifier with PyTorch acceleration
+- **Signal Confirmation**: Enhanced Logistic Regression with deep learning
+- **Risk Management**: Advanced Chandelier Exit system
+- **Position Sizing**: Dynamic position sizing based on volatility
 
-### 🧠 Machine Learning Pipeline
+### 📊 Technical Indicators
+- **Base PyTorch Indicators**: GPU-accelerated technical analysis
+- **Wave Trend Analysis**: Advanced momentum detection
+- **Custom Implementations**: RSI, CCI, ADX with Pine Script accuracy
+- **Trend Level Analysis**: Multi-timeframe support
+
+### 🧠 Machine Learning Infrastructure
 - **PyTorch Integration**: GPU-accelerated model training
 - **Automatic Mixed Precision**: Optimized performance
-- **Custom Feature Engineering**: Rich technical analysis features
-- **Real-time Signal Generation**: Live trading capabilities
+- **LSTM & Attention**: Deep learning for pattern recognition
+- **Real-time Inference**: Live trading capabilities
 
-### 💾 Data Infrastructure
+### 💾 Data Management
 - **Neon Database**: Efficient data storage and retrieval
-- **Data Pipeline**: Automated collection and processing
+- **Real-time Pipeline**: Live market data processing
 - **Batch Processing**: Optimized data loading
-- **Real-time Updates**: Live market data integration
+- **Visualization Tools**: Advanced charting and analysis
+
+## 📁 Project Structure
+```
+src/
+├── models/
+│   └── strategy/           # Trading strategy components
+│       ├── primary/        # Primary signal generation
+│       ├── confirmation/   # Signal confirmation
+│       └── risk_management/# Position & risk management
+├── features/
+│   └── technical/         # Technical analysis
+│       └── indicators/    # Base indicators
+├── data/                  # Data management
+│   ├── pipeline/         # Data processing
+│   ├── collectors/       # Data collection
+│   └── processors/       # Data transformation
+└── utils/                # Utility functions
+```
 
 ## 🚀 Quick Start
 
@@ -64,58 +88,59 @@ cp .env.example .env
 
 ## 💡 Usage Examples
 
-### Data Collection
+### Strategy Implementation
 ```python
-from src.data.pipeline.neon_collector import NeonDataCollector
+from src.models.strategy.primary import LorentzianClassifier
+from src.models.strategy.confirmation import LogisticRegression
+from src.models.strategy.risk_management import ChandelierExit
 
-collector = NeonDataCollector(connection_string)
-collector.collect_historical('BTC/USD', days=30)
+# Initialize strategy components
+classifier = LorentzianClassifier()
+confirmation = LogisticRegression()
+risk_manager = ChandelierExit()
+
+# Generate trading signals
+signals = classifier.calculate_signals(data)
+confirmed = confirmation.confirm_signals(signals)
+exits = risk_manager.calculate_exits(confirmed)
 ```
 
-### Model Training
+### Data Pipeline
 ```python
-from src.models.training import ModelTrainer
+from src.data.pipeline import NeonPipeline
+from src.utils.neon_visualizer import NeonVisualizer
 
-trainer = ModelTrainer(model_config)
-trainer.train(train_loader)
-```
+# Initialize pipeline
+pipeline = NeonPipeline()
+visualizer = NeonVisualizer()
 
-## 📈 Project Structure
-
-```
-src/
-├── data/               # Data handling
-│   ├── collectors/     # Market data collection
-│   ├── processors/     # Data processing
-│   └── pipeline/      # Neon data pipeline
-├── features/          # Feature engineering
-│   └── technical/     # Technical indicators
-├── models/           # ML model implementations
-└── utils/           # Helper functions
+# Process and visualize data
+data = pipeline.process_market_data('BTC/USD')
+visualizer.plot_signals(data, signals)
 ```
 
 ## 🛠️ Development Status
 
 ### Completed Features
-- [x] PyTorch integration
-- [x] Neon database setup
-- [x] Custom technical indicators
-- [x] Data pipeline
-- [x] Batch processing
+- [x] PyTorch-based technical indicators
+- [x] Lorentzian Classifier implementation
+- [x] Neon database integration
+- [x] Advanced risk management
+- [x] Real-time signal generation
 
 ### Coming Soon
-- [ ] Advanced backtesting framework
-- [ ] Web interface
-- [ ] Performance analytics dashboard
-- [ ] Risk management system
+- [ ] Web dashboard
+- [ ] Extended backtesting framework
+- [ ] Portfolio optimization
+- [ ] Multi-timeframe analysis
 
 ## 📊 Performance
 
-The system incorporates:
-- GPU acceleration for model training
+The system leverages:
+- GPU acceleration for computations
+- Automatic mixed precision
 - Efficient batch processing
 - Optimized database queries
-- Real-time signal generation
 
 ## 🤝 Contributing
 

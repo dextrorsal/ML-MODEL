@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
-from enhanced_lorentzian import EnhancedLorentzian, Direction
+from src.models.strategy.primary.lorentzian_classifier import LorentzianClassifier, Direction, LorentzianSettings
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -33,12 +33,13 @@ class StrategyBacktest:
         self.trades: List[Trade] = []
         self.open_positions: List[Dict] = []
         
-        # Initialize ML model
-        self.model = EnhancedLorentzian(
-            lookback_period=30,
-            n_neighbors=8,
-            rsi_period=14,
-            supertrend_period=10
+        # Initialize ML model with default settings
+        self.model = LorentzianClassifier(
+            config=LorentzianSettings(
+                use_volatility_filter=True,
+                use_regime_filter=True,
+                use_adx_filter=True
+            )
         )
     
     def run_backtest(self, df: pd.DataFrame) -> Dict:

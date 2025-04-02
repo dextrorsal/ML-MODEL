@@ -22,11 +22,11 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
-from .base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
-from .indicators.rsi import RsiIndicator
-from .indicators.cci import CciIndicator
-from .indicators.wave_trend import WaveTrendIndicator
-from .indicators.adx import ADXIndicator
+from ....features.technical.indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from ....features.technical.indicators.rsi import RsiIndicator
+from ....features.technical.indicators.cci import CciIndicator
+from ....features.technical.indicators.wave_trend import WaveTrendIndicator
+from ....features.technical.indicators.adx import ADXIndicator
 
 class Direction(Enum):
     """Trading direction enumeration"""
