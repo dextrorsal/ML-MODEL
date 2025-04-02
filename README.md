@@ -18,6 +18,7 @@ Dive deeper into the project with our comprehensive documentation:
 - [📊 Technical Indicators](docs/INDICATORS.md) - Custom indicator implementations
 - [🔄 Data Pipeline](docs/NEON_PIPELINE.md) - Neon database integration
 - [🧠 ML Architecture](docs/ML_MODEL.md) - Model design and training
+- [🛠️ Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
 ## 🌟 Features
 
@@ -45,23 +46,14 @@ Dive deeper into the project with our comprehensive documentation:
 - **Batch Processing**: Optimized data loading
 - **Visualization Tools**: Advanced charting and analysis
 
-## 📁 Project Structure
-```
-src/
-├── models/
-│   └── strategy/           # Trading strategy components
-│       ├── primary/        # Primary signal generation
-│       ├── confirmation/   # Signal confirmation
-│       └── risk_management/# Position & risk management
-├── features/
-│   └── technical/         # Technical analysis
-│       └── indicators/    # Base indicators
-├── data/                  # Data management
-│   ├── pipeline/         # Data processing
-│   ├── collectors/       # Data collection
-│   └── processors/       # Data transformation
-└── utils/                # Utility functions
-```
+## �� Project Structure
+
+Key directories:
+- `src/models/` - Trading strategy models and ML architecture
+- `src/features/` - Technical analysis and indicators
+- `src/data/` - Data collection and processing
+- `tests/` - Testing infrastructure
+- `docs/` - Detailed documentation
 
 ## 🚀 Quick Start
 
@@ -127,12 +119,37 @@ visualizer.plot_signals(data, signals)
 - [x] Neon database integration
 - [x] Advanced risk management
 - [x] Real-time signal generation
+- [x] Comprehensive data collection & storage testing
 
 ### Coming Soon
 - [ ] Web dashboard
 - [ ] Extended backtesting framework
 - [ ] Portfolio optimization
 - [ ] Multi-timeframe analysis
+
+## 🧪 Testing
+
+The project includes comprehensive testing for all components:
+
+### Data Collection & Storage Tests
+- Binance API connection testing
+- WebSocket streaming verification
+- Database storage validation
+- See [tests/data/README.md](tests/data/README.md) for details
+
+### Model Tests
+- Technical indicator validation
+- ML model validation
+- Predictive accuracy benchmarking
+
+### Running Tests
+```bash
+# Install test dependencies
+pip install -r tests/data/requirements-data-tests.txt
+
+# Run data collection tests
+python -m pytest tests/data/ -v
+```
 
 ## 📊 Performance
 

@@ -213,7 +213,41 @@ def monitor_pipeline_performance(self):
     return metrics
 ```
 
-### 3. Error Handling
+### 3. WebSocket Connection Management
+```python
+def handle_websocket_connection(self):
+    """Properly manage WebSocket connections"""
+    # Initialize WebSocket with proper callbacks
+    self.ws = websocket.WebSocketApp(
+        "wss://stream.binance.com:9443/ws/solusdt@kline_1m",
+        on_message=self.on_message,
+        on_error=self.on_error,
+        on_close=self.on_close,
+        on_open=self.on_open,
+        on_ping=self.on_ping
+    )
+    
+    # Implement ping/pong for connection maintenance
+    def on_ping(self, wsapp, message):
+        """Handle ping frames by responding with pong"""
+        wsapp.send(message, websocket.ABNF.OPCODE_PONG)
+
+    # Implement reconnection with backoff
+    def reconnect(self):
+        """Reconnect with exponential backoff"""
+        attempts = 0
+        while attempts < self.max_reconnect_attempts:
+            time.sleep(min(60, 2 ** attempts))
+            try:
+                self.start_websocket()
+                return True
+            except Exception as e:
+                logging.error(f"Reconnection attempt {attempts+1} failed: {e}")
+                attempts += 1
+        return False
+```
+
+### 4. Error Handling
 ```python
 class PipelineError(Exception):
     """Custom exception for pipeline errors"""

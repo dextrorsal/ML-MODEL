@@ -2,13 +2,14 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import pandas as pd
 from binance.spot import Spot
-from binance.websocket.spot.websocket_client import SpotWebsocketClient
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 import logging
 import json
 import asyncpg
 from queue import Queue
-from threading import Thread
+import websocket
+import threading
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +17,6 @@ logger = logging.getLogger(__name__)
 class SOLDataCollector:
     def __init__(self, neon_connection_string: Optional[str] = None):
         self.client = Spot()
-        self.ws_client = SpotWebsocketClient()
         self.symbol = "SOLUSDT"
         self.timeframes = {
             "5m": "5m",
@@ -38,13 +38,19 @@ class SOLDataCollector:
             'last_update': None,
             'candles': {}
         }
+        
+        # WebSocket connection
+        self.ws = None
+        self.ws_thread = None
+        self.ws_connected = False
+        self.stream_subscriptions = []
     
     async def init_db(self):
         """Initialize database connection pool"""
         if not self._db_pool and self.neon_conn_str:
             self._db_pool = await asyncpg.create_pool(self.neon_conn_str)
     
-    def message_handler(self, message):
+    def on_message(self, ws, message):
         """Handle incoming WebSocket messages"""
         try:
             data = json.loads(message)
@@ -73,6 +79,102 @@ class SOLDataCollector:
         
         except Exception as e:
             logger.error(f"Error processing message: {e}")
+    
+    def on_error(self, ws, error):
+        """Handle WebSocket errors"""
+        logger.error(f"WebSocket error: {error}")
+    
+    def on_close(self, ws, close_status_code, close_msg):
+        """Handle WebSocket close"""
+        logger.info(f"WebSocket closed: {close_status_code} - {close_msg}")
+        self.ws_connected = False
+        
+        # Attempt to reconnect if we're supposed to be running
+        if self.is_running:
+            logger.info("Attempting to reconnect...")
+            time.sleep(5)  # Wait before reconnecting
+            self._connect_websocket()
+    
+    def on_open(self, ws):
+        """Handle WebSocket open"""
+        logger.info("WebSocket connection established")
+        self.ws_connected = True
+        
+        # Subscribe to all streams
+        if self.stream_subscriptions:
+            self._subscribe_to_streams(self.stream_subscriptions)
+    
+    def on_ping(self, ws, message):
+        """Handle ping from server"""
+        logger.debug(f"Received ping: {message}")
+        # The websocket-client library will automatically respond with pong
+    
+    def on_pong(self, ws, message):
+        """Handle pong from server"""
+        logger.debug(f"Received pong: {message}")
+    
+    def _connect_websocket(self):
+        """Connect to Binance WebSocket"""
+        # Close existing connection if any
+        if self.ws:
+            try:
+                self.ws.close()
+            except:
+                pass
+        
+        # Create new WebSocket connection
+        websocket.enableTrace(False)
+        socket_url = "wss://stream.binance.com:9443/stream"
+        
+        self.ws = websocket.WebSocketApp(
+            socket_url,
+            on_message=self.on_message,
+            on_error=self.on_error,
+            on_close=self.on_close,
+            on_open=self.on_open,
+            on_ping=self.on_ping,
+            on_pong=self.on_pong
+        )
+        
+        # Start WebSocket in a separate thread
+        self.ws_thread = threading.Thread(target=self.ws.run_forever, kwargs={
+            'ping_interval': 180,  # Send ping every 3 minutes
+            'ping_timeout': 10,    # Wait 10 seconds for pong response
+            'ping_payload': ""     # Empty ping payload as recommended by Binance
+        })
+        self.ws_thread.daemon = True
+        self.ws_thread.start()
+        
+        # Wait for connection to establish
+        timeout = 10  # seconds
+        start_time = time.time()
+        while not self.ws_connected and time.time() - start_time < timeout:
+            time.sleep(0.1)
+        
+        if not self.ws_connected:
+            logger.error("Failed to establish WebSocket connection")
+            return False
+        
+        return True
+    
+    def _subscribe_to_streams(self, streams: List[str]):
+        """Subscribe to multiple streams"""
+        if not self.ws_connected:
+            logger.error("Cannot subscribe: WebSocket not connected")
+            return False
+        
+        try:
+            subscribe_msg = {
+                "method": "SUBSCRIBE",
+                "params": streams,
+                "id": int(time.time() * 1000)  # Use timestamp as ID
+            }
+            self.ws.send(json.dumps(subscribe_msg))
+            logger.info(f"Subscribed to streams: {streams}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to subscribe to streams: {e}")
+            return False
     
     async def db_worker(self):
         """Background worker to handle database insertions"""
@@ -118,24 +220,28 @@ class SOLDataCollector:
         self.is_running = True
         
         try:
-            self.ws_client.start()
+            # Prepare stream subscriptions
+            self.stream_subscriptions = []
+            for tf in self.timeframes.values():
+                stream_name = f"{self.symbol.lower()}@kline_{tf}"
+                self.stream_subscriptions.append(stream_name)
+            
+            # Connect to WebSocket
+            if not self._connect_websocket():
+                raise Exception("Failed to connect to WebSocket")
             
             # Start database worker task
             asyncio.create_task(self.db_worker())
             
-            # Subscribe to kline/candlestick streams for different timeframes
-            for tf in self.timeframes.values():
-                stream_name = f"{self.symbol.lower()}@kline_{tf}"
-                self.ws_client.kline(
-                    symbol=self.symbol,
-                    interval=tf,
-                    callback=self.message_handler
-                )
-            
             logger.info(f"WebSocket started for {self.symbol}")
             
+            # Keep the async task running
             while self.is_running:
-                await asyncio.sleep(1)
+                if not self.ws_connected:
+                    logger.warning("WebSocket disconnected, attempting to reconnect...")
+                    self._connect_websocket()
+                
+                await asyncio.sleep(5)
         
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
@@ -145,14 +251,23 @@ class SOLDataCollector:
     async def stop_websocket(self):
         """Stop WebSocket connection"""
         self.is_running = False
-        self.ws_client.stop()
-        logger.info("WebSocket stopped")
+        
+        if self.ws:
+            try:
+                self.ws.close()
+                logger.info("WebSocket stopped")
+            except Exception as e:
+                logger.error(f"Error stopping WebSocket: {e}")
+        
+        if self.ws_thread and self.ws_thread.is_alive():
+            # Wait for thread to finish (with timeout)
+            self.ws_thread.join(timeout=2)
     
     def get_cached_price(self) -> Optional[float]:
         """Get latest cached price"""
         return self.cache['last_price']
     
-    async def fetch_all_timeframes(self, lookback_days: int = 365) -> Dict[str, pd.DataFrame]:  # Increased default lookback for better pattern recognition
+    async def fetch_all_timeframes(self, lookback_days: int = 365) -> Dict[str, pd.DataFrame]:
         """
         Fetch SOL-PERP data for all specified timeframes.
         
