@@ -137,7 +137,7 @@ class RSIIndicator(BaseTorchIndicator):
         close_prices = self.to_tensor(data['close'])
         
         # Calculate RSI and signals
-        with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
+        with torch.amp.autocast('cuda') if self.config.use_amp else nullcontext():
             results = self.forward(close_prices)
         
         return results
