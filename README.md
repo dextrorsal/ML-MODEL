@@ -2,6 +2,23 @@
 
 > A sophisticated machine learning trading bot leveraging PyTorch and Neon for algorithmic trading on Solana and other cryptocurrencies.
 
+[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+## 📚 Documentation
+
+Dive deeper into the project with our comprehensive documentation:
+
+### Core Concepts
+- [📈 Trading Philosophy](docs/TRADING_PHILOSOPHY.md) - Understanding the core trading approach
+- [🔬 Technical Strategy](docs/TECHNICAL_STRATEGY.md) - Detailed technical implementation
+
+### Technical Documentation
+- [📊 Technical Indicators](docs/INDICATORS.md) - Custom indicator implementations
+- [🔄 Data Pipeline](docs/NEON_PIPELINE.md) - Neon database integration
+- [🧠 ML Architecture](docs/ML_MODEL.md) - Model design and training
+
 ## 🌟 Features
 
 ### 📊 Advanced Technical Indicators
@@ -22,31 +39,20 @@
 - **Batch Processing**: Optimized data loading
 - **Real-time Updates**: Live market data integration
 
-## 🏗️ Project Structure
-```
-src/
-├── data/
-│   ├── collectors/         # Market data collection
-│   ├── processors/        # Data processing
-│   └── pipeline/         # Neon data pipeline
-├── features/
-│   └── technical/        # Technical indicators
-├── models/              # ML model implementations
-└── utils/              # Helper functions
-```
-
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- PyTorch
-- PostgreSQL (Neon)
-- CCXT for market data
+```bash
+Python 3.8+
+PyTorch
+PostgreSQL (Neon)
+CCXT
+```
 
 ### Installation
 ```bash
 # Clone the repository
-git clone [your-repo-url]
+git clone https://github.com/dextrorsal/ML-MODEL.git
 
 # Install dependencies
 pip install -r requirements.txt
@@ -56,12 +62,7 @@ cp .env.example .env
 # Edit .env with your credentials
 ```
 
-### Configuration
-1. Set up your Neon database credentials
-2. Configure your trading pairs and timeframes
-3. Adjust model parameters in `config.yaml`
-
-## 💡 Usage
+## 💡 Usage Examples
 
 ### Data Collection
 ```python
@@ -71,7 +72,7 @@ collector = NeonDataCollector(connection_string)
 collector.collect_historical('BTC/USD', days=30)
 ```
 
-### Training Models
+### Model Training
 ```python
 from src.models.training import ModelTrainer
 
@@ -79,15 +80,36 @@ trainer = ModelTrainer(model_config)
 trainer.train(train_loader)
 ```
 
-### Live Trading
-```python
-from src.realtime import TradingEngine
+## 📈 Project Structure
 
-engine = TradingEngine(model, strategy)
-engine.start_trading()
+```
+src/
+├── data/               # Data handling
+│   ├── collectors/     # Market data collection
+│   ├── processors/     # Data processing
+│   └── pipeline/      # Neon data pipeline
+├── features/          # Feature engineering
+│   └── technical/     # Technical indicators
+├── models/           # ML model implementations
+└── utils/           # Helper functions
 ```
 
-## 📈 Performance
+## 🛠️ Development Status
+
+### Completed Features
+- [x] PyTorch integration
+- [x] Neon database setup
+- [x] Custom technical indicators
+- [x] Data pipeline
+- [x] Batch processing
+
+### Coming Soon
+- [ ] Advanced backtesting framework
+- [ ] Web interface
+- [ ] Performance analytics dashboard
+- [ ] Risk management system
+
+## 📊 Performance
 
 The system incorporates:
 - GPU acceleration for model training
@@ -95,35 +117,22 @@ The system incorporates:
 - Optimized database queries
 - Real-time signal generation
 
-## 🛠️ Development
+## 🤝 Contributing
 
-### Current Features
-- [x] PyTorch integration
-- [x] Neon database setup
-- [x] Custom technical indicators
-- [x] Data pipeline
-- [x] Batch processing
-
-### Roadmap
-- [ ] Advanced backtesting framework
-- [ ] More ML models
-- [ ] Web interface
-- [ ] Performance analytics
-- [ ] Risk management system
+Interested in contributing? Check out our:
+- [Contributing Guidelines](docs/CONTRIBUTING.md)
+- [Code of Conduct](docs/CODE_OF_CONDUCT.md)
+- [Development Setup](docs/DEVELOPMENT.md)
 
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## 📧 Contact
 
 D3X7 - Creator of ML-Powered Crypto Trading Bot
 
-Project Link: [https://github.com/D3X7/ML-MODEL](https://github.com/D3X7/ML-MODEL)
+Project Link: [https://github.com/dextrorsal/ML-MODEL](https://github.com/dextrorsal/ML-MODEL)
 
 ---
 
