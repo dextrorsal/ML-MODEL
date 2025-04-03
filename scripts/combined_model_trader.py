@@ -481,6 +481,18 @@ async def main():
     # Parse arguments
     args = parse_arguments()
     
+    # Create a logs directory if it doesn't exist
+    logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Setup file logging
+    log_file = os.path.join(logs_dir, f'combined_trader_{datetime.now().strftime("%Y%m%d_%H%M")}.log')
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+    
+    logger.info("Starting Combined Model Trader")
+    
     # Load models
     model_5m, features_5m = load_model(args.model_5m, args.features_5m)
     model_15m, features_15m = load_model(args.model_15m, args.features_15m)
@@ -506,19 +518,34 @@ async def main():
     # If live mode, start streaming data and processing signals
     if args.live:
         logger.info("Starting live trading mode")
+        logger.info(f"Price feed activated at {datetime.now()}")
+        logger.info(f"Current price: ${df_5m_processed['close'].iloc[-1]:.2f}")
         
         # Start WebSocket for real-time data
         await collector.start_websocket()
         
         try:
+            last_price_log = datetime.now()
+            check_count = 0
+            
             while True:
-                # Sleep for 5 minutes
-                logger.info("Waiting for next signal check...")
-                await asyncio.sleep(5 * 60)
+                # Sleep for 5 minutes (or a shorter interval for demo)
+                check_interval = 1 * 60  # 1 minute for testing, use 5 * 60 for production
+                logger.info(f"Waiting for next signal check... ({check_interval}s)")
+                await asyncio.sleep(check_interval)
                 
                 # Fetch latest data
                 df_5m_latest = await fetch_data(collector, "5m", 1)
                 df_15m_latest = await fetch_data(collector, "15m", 1)
+                
+                # Log current price periodically
+                current_time = datetime.now()
+                if (current_time - last_price_log).total_seconds() > 60 or check_count % 5 == 0:
+                    last_price = df_5m_latest['close'].iloc[-1]
+                    logger.info(f"Current price: ${last_price:.2f}")
+                    last_price_log = current_time
+                
+                check_count += 1
                 
                 # Preprocess latest data
                 X_5m_latest, df_5m_latest_processed = preprocess_data(df_5m_latest, features_5m)
@@ -541,6 +568,12 @@ async def main():
                     logger.info(f"15m Confidence: {latest_row['confidence_15m']:.4f}")
                     logger.info(f"Weighted Confidence: {latest_row['weighted_confidence']:.4f}")
                     logger.info(f"Current SOL Price: ${df_5m_latest_processed['close'].iloc[-1]:.2f}")
+                    
+                    # Play notification sound if possible
+                    try:
+                        print('\a')  # Terminal bell
+                    except:
+                        pass
         
         except KeyboardInterrupt:
             logger.info("Stopping live trading")
@@ -548,6 +581,7 @@ async def main():
             
         except Exception as e:
             logger.error(f"Error in live trading: {str(e)}")
+            logger.exception("Detailed error:")
             await collector.stop_websocket()
     
     else:
