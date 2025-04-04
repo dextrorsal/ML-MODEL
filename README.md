@@ -42,10 +42,26 @@ Dive deeper into the project with our comprehensive documentation:
 - **Real-time Inference**: Live trading capabilities
 
 ### 💾 Data Management
-- **Neon Database**: Efficient data storage and retrieval
+- **Neon Database**: Efficient data storage and retrieval with PostgreSQL
 - **Real-time Pipeline**: Live market data processing
 - **Batch Processing**: Optimized data loading
 - **Visualization Tools**: Advanced charting and analysis
+
+## 📊 Neon Database Integration
+
+Our trading bot now features full integration with Neon PostgreSQL for:
+
+- **Price Data Storage**: All OHLCV data is automatically stored in the database
+- **Trading Signals**: ML model trading signals are saved and timestamped
+- **Model Predictions**: Track model performance over time
+- **Real-time Dashboard**: Web-based monitoring of signals and performance
+- **Historical Analysis**: Query and analyze past trading decisions
+
+**Database Schema:**
+- `price_data`: Historical price data (OHLCV)
+- `trading_signals`: ML model generated signals with confidence levels
+- `model_predictions`: Raw model predictions for performance tracking
+- `model_checkpoints`: Model version tracking
 
 ## 📝 Project Structure
 
@@ -55,6 +71,7 @@ Key directories:
 - `src/data/` - Data collection and processing
 - `tests/` - Testing infrastructure
 - `docs/` - Detailed documentation
+- `scripts/dashboard/` - Web-based trading dashboard
 
 ## 🚀 Quick Start
 
@@ -72,8 +89,14 @@ Key directories:
    ```
 
 3. **Setup database**
+   The project uses Neon PostgreSQL as the database backend. Ensure you have:
+   - A Neon account (https://neon.tech)
+   - A project created with the required tables
+   - Your connection string ready
+
    ```bash
-   python scripts/setup_database.py
+   # Set up your database with the schema
+   python scripts/setup_database.py --connection-string "your_neon_connection_string"
    ```
 
 4. **Collect historical data**
@@ -86,13 +109,39 @@ Key directories:
    python scripts/train_model.py --data-days 30 --epochs 10
    ```
 
-6. **Run the dashboard**
+6. **Start the complete trading system with dashboard**
    ```bash
-   pip install -r scripts/dashboard/requirements-dashboard.txt
-   python scripts/dashboard/model_dashboard.py
+   python scripts/start_trading_system.py --confidence-threshold 0.3 --neon-connection "your_neon_connection_string"
+   ```
+   This will start the ML trader and web dashboard simultaneously. Access the dashboard at http://127.0.0.1:5000
+
+7. **Or run components separately:**
+   ```bash
+   # Start just the dashboard
+   python scripts/dashboard/trader_dashboard.py
+   
+   # Start just the trader (live mode)
+   python scripts/combined_model_trader.py --live --confidence-threshold 0.3
    ```
 
-7. **Start trading (paper mode)**
-   ```bash
-   python scripts/run_trading.py --paper --model models/trained/your_model.pt
-   ```
+## 🔄 Updating the Trading System
+
+The Neon database integration provides:
+
+1. **Persistent Data Storage**: Your trading signals and price data are now stored permanently in the cloud
+2. **Portable Analysis**: Connect visualization tools directly to Neon for deeper analysis
+3. **Signal Tracking**: Every ML prediction is tracked and timestamped for performance analysis
+4. **Cloud Backup**: Data is automatically backed up through Neon's managed service
+
+To view your data manually, connect to your Neon database using any PostgreSQL client with your connection string:
+```
+postgresql://neondb_owner:password@endpoint-id.us-east-2.aws.neon.tech/neondb
+```
+
+## 📈 Performance Monitoring
+
+The integrated dashboard provides real-time visualization of:
+- Current price and historical chart
+- ML model signals with confidence levels
+- Trading performance metrics
+- All backed by the Neon database for persistent storage

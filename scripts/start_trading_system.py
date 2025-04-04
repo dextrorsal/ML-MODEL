@@ -32,6 +32,10 @@ def parse_arguments():
                        default="models/trained/extended/15m_20250402_1614/final_model_15m.pt",
                        help="Path to 15m model")
     
+    parser.add_argument("--neon-connection", type=str,
+                       default="postgresql://dex:testpassword@localhost:5432/solana_trading_test",
+                       help="Neon database connection string")
+    
     return parser.parse_args()
 
 def start_model_trader(args):
@@ -45,13 +49,14 @@ def start_model_trader(args):
         f"--confidence-threshold={args.confidence_threshold}",
         f"--combined-threshold={args.combined_threshold}",
         f"--model-5m={args.model_5m}",
-        f"--model-15m={args.model_15m}"
+        f"--model-15m={args.model_15m}",
+        f"--neon-connection={args.neon_connection}"
     ]
     
     trader_process = subprocess.Popen(cmd)
     return trader_process
 
-def start_dashboard():
+def start_dashboard(args):
     """Start the dashboard process"""
     print("Starting Trading Dashboard...")
     
@@ -59,12 +64,16 @@ def start_dashboard():
     logs_dir = os.path.join(ROOT_DIR, 'logs')
     os.makedirs(logs_dir, exist_ok=True)
     
+    # Set environment variable for Neon connection
+    env = os.environ.copy()
+    env["NEON_CONNECTION_STRING"] = args.neon_connection
+    
     cmd = [
         "python", 
         os.path.join(SCRIPT_DIR, "dashboard", "trader_dashboard.py")
     ]
     
-    dashboard_process = subprocess.Popen(cmd)
+    dashboard_process = subprocess.Popen(cmd, env=env)
     return dashboard_process
 
 def cleanup_processes(processes):
@@ -90,7 +99,7 @@ def print_startup_message(dashboard_url):
     ███████║╚██████╔╝███████╗       ██║   ██║  ██║██║  ██║██████╔╝███████╗██║  ██║
     ╚══════╝ ╚═════╝ ╚══════╝       ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝
                                                                                   
-      ML-POWERED TRADING SYSTEM
+      ML-POWERED TRADING SYSTEM WITH NEON DB
     """)
     print("="*80)
     print(f"\n🚀 Trading model is running! The system is now monitoring SOL price in real-time.")
@@ -99,6 +108,7 @@ def print_startup_message(dashboard_url):
     print("   - Real-time price chart")
     print("   - Trading signals as they occur")
     print("   - Performance statistics")
+    print("\n🗄️  All data is being stored in your Neon database")
     print("\n⚠️  Press Ctrl+C to stop the trading system")
     print("\n" + "="*80 + "\n")
 
@@ -115,7 +125,7 @@ def main():
     
     try:
         # Start dashboard first
-        dashboard_process = start_dashboard()
+        dashboard_process = start_dashboard(args)
         processes.append(dashboard_process)
         
         # Wait for dashboard to start

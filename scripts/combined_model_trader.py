@@ -37,32 +37,75 @@ logger = logging.getLogger(__name__)
 
 def parse_arguments():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Combined Model Trader for SOL')
-    parser.add_argument('--model-5m', type=str, default='models/trained/extended/5m_20250402_1614/final_model_5m.pt',
-                        help='Path to 5-minute model')
-    parser.add_argument('--model-15m', type=str, default='models/trained/extended/15m_20250402_1614/final_model_15m.pt',
-                        help='Path to 15-minute model')
-    parser.add_argument('--features-5m', type=str, default='models/trained/extended/5m_20250402_1614/feature_columns_5m.json',
-                        help='Path to 5-minute feature columns')
-    parser.add_argument('--features-15m', type=str, default='models/trained/extended/15m_20250402_1614/feature_columns_15m.json',
-                        help='Path to 15-minute feature columns')
-    parser.add_argument('--live', action='store_true',
-                        help='Use live streaming data')
-    parser.add_argument('--backtest-days', type=int, default=30,
-                        help='Number of days to backtest')
-    parser.add_argument('--confidence-threshold', type=float, default=0.65,
-                        help='Confidence threshold for signals')
-    parser.add_argument('--combined-threshold', type=float, default=0.75,
-                        help='Combined confidence threshold')
+    parser = argparse.ArgumentParser(description="Combined model trader")
+    
+    parser.add_argument("--model-5m", type=str, 
+                       default="models/trained/extended/5m_20250402_1614/final_model_5m.pt",
+                       help="Path to 5m model")
+    
+    parser.add_argument("--model-15m", type=str,
+                       default="models/trained/extended/15m_20250402_1614/final_model_15m.pt",
+                       help="Path to 15m model")
+    
+    parser.add_argument("--features-5m", type=str, 
+                       default=None,
+                       help="Path to 5m features list (JSON). If not provided, will use default features.")
+    
+    parser.add_argument("--features-15m", type=str,
+                       default=None,
+                       help="Path to 15m features list (JSON). If not provided, will use default features.")
+    
+    parser.add_argument("--live", action="store_true",
+                       help="Enable live trading mode")
+    
+    parser.add_argument("--backtest-days", type=int, default=30,
+                       help="Number of days to backtest (default: 30)")
+    
+    parser.add_argument("--confidence-threshold", type=float, default=0.65,
+                       help="Confidence threshold for signals (default: 0.65)")
+    
+    parser.add_argument("--combined-threshold", type=float, default=0.75,
+                       help="Combined confidence threshold (default: 0.75)")
+    
+    parser.add_argument("--neon-connection", type=str,
+                       default=None,
+                       help="Neon database connection string")
+    
     return parser.parse_args()
 
 def load_model(model_path, features_path, input_size=None):
     """Load a trained model and its features"""
     logger.info(f"Loading model from {model_path}")
     
-    # Load feature columns
-    with open(features_path, 'r') as f:
-        feature_columns = json.load(f)
+    # If features_path is None, try to determine it from the model path
+    if features_path is None:
+        # Try to guess the features path from the model path
+        model_dir = os.path.dirname(model_path)
+        timeframe = "5m" if "5m" in model_path else "15m"
+        features_path = os.path.join(model_dir, f"feature_columns_{timeframe}.json")
+        logger.info(f"No features path provided, using auto-detected path: {features_path}")
+    
+    # Check if the features file exists
+    if not os.path.isfile(features_path):
+        logger.warning(f"Features file not found at {features_path}")
+        # Use a default set of features as fallback
+        logger.info("Using default feature set")
+        if "5m" in model_path:
+            feature_columns = [
+                "price_change", "volume_change", "high_low_diff", "body_size",
+                "rsi", "macd", "bb_width", "mom_1", "mom_5", "mom_10", 
+                "sma_5", "sma_10", "sma_20", "ma_cross_5_20", "ma_cross_10_50"
+            ]
+        else:
+            feature_columns = [
+                "price_change", "volume_change", "high_low_diff", "body_size",
+                "rsi", "macd", "bb_width", "mom_1", "mom_5", "mom_10", 
+                "sma_5", "sma_10", "sma_20", "ma_cross_5_20", "ma_cross_10_50"
+            ]
+    else:
+        # Load feature columns from file
+        with open(features_path, 'r') as f:
+            feature_columns = json.load(f)
     
     # Determine input size
     if input_size is None:
@@ -497,8 +540,8 @@ async def main():
     model_5m, features_5m = load_model(args.model_5m, args.features_5m)
     model_15m, features_15m = load_model(args.model_15m, args.features_15m)
     
-    # Initialize data collector
-    collector = SOLDataCollector()
+    # Initialize data collector with Neon connection if provided
+    collector = SOLDataCollector(args.neon_connection)
     
     # Fetch historical data
     df_5m = await fetch_data(collector, "5m", args.backtest_days)
@@ -520,6 +563,10 @@ async def main():
         logger.info("Starting live trading mode")
         logger.info(f"Price feed activated at {datetime.now()}")
         logger.info(f"Current price: ${df_5m_processed['close'].iloc[-1]:.2f}")
+        
+        # If Neon connection is available, log that we're storing data
+        if args.neon_connection:
+            logger.info(f"Storing trading data to Neon database")
         
         # Start WebSocket for real-time data
         await collector.start_websocket()
@@ -561,13 +608,56 @@ async def main():
                 if latest_row is not None and (latest_row['tradingview_style_signal'] == 1 or 
                                              latest_row['combined_signal'] == 1 or
                                              latest_row['strong_signal'] == 1):
+                    # Determine the most significant signal type
+                    if latest_row['strong_signal'] == 1:
+                        signal_type = "Strong"
+                    elif latest_row['tradingview_style_signal'] == 1:
+                        signal_type = "TradingView-style"
+                    else:
+                        signal_type = "Combined"
+                    
                     logger.info("🔔 NEW TRADING SIGNAL DETECTED!")
                     logger.info(f"Timestamp: {latest_signals.index[-1]}")
-                    logger.info(f"Signal type: {'TradingView-style' if latest_row['tradingview_style_signal'] == 1 else ('Combined' if latest_row['combined_signal'] == 1 else 'Strong')}")
+                    logger.info(f"Signal type: {signal_type}")
                     logger.info(f"5m Confidence: {latest_row['confidence_5m']:.4f}")
                     logger.info(f"15m Confidence: {latest_row['confidence_15m']:.4f}")
                     logger.info(f"Weighted Confidence: {latest_row['weighted_confidence']:.4f}")
-                    logger.info(f"Current SOL Price: ${df_5m_latest_processed['close'].iloc[-1]:.2f}")
+                    current_price = df_5m_latest_processed['close'].iloc[-1]
+                    logger.info(f"Current SOL Price: ${current_price:.2f}")
+                    
+                    # Store signal in database if connection available
+                    if args.neon_connection and hasattr(collector, '_db_pool') and collector._db_pool:
+                        try:
+                            async with collector._db_pool.acquire() as conn:
+                                signal_time = latest_signals.index[-1]
+                                
+                                # Insert into trading_signals table
+                                await conn.execute("""
+                                    INSERT INTO trading_signals 
+                                    (timestamp, symbol, signal_type, signal_strength, 
+                                     confidence_5m, confidence_15m, weighted_confidence, price)
+                                    VALUES 
+                                    ($1, $2, $3, $4, $5, $6, $7, $8)
+                                    ON CONFLICT (timestamp, symbol, signal_type) DO UPDATE
+                                    SET 
+                                        signal_strength = $4,
+                                        confidence_5m = $5,
+                                        confidence_15m = $6,
+                                        weighted_confidence = $7,
+                                        price = $8
+                                """, 
+                                signal_time, 
+                                "SOLUSDT", 
+                                signal_type, 
+                                float(latest_row['weighted_confidence']),
+                                float(latest_row['confidence_5m']),
+                                float(latest_row['confidence_15m']),
+                                float(latest_row['weighted_confidence']),
+                                float(current_price))
+                                
+                                logger.info(f"Signal saved to database")
+                        except Exception as e:
+                            logger.error(f"Error saving signal to database: {e}")
                     
                     # Play notification sound if possible
                     try:

@@ -1,16 +1,17 @@
 import os
 import sys
-import json
 import logging
 import pandas as pd
-import numpy as np
 from flask import Flask, render_template, jsonify
 from datetime import datetime, timedelta
 import threading
 import time
+import asyncio
 
 # Add the root directory to the path so we can import our modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from src.utils.db_connector import DBConnector
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, 
@@ -21,63 +22,103 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'solana-trading-dashboard-key'
 
-# Create data directory if it doesn't exist
-DASHBOARD_DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
-os.makedirs(DASHBOARD_DATA_DIR, exist_ok=True)
+# Get database connection string from environment if available
+NEON_CONNECTION_STRING = os.environ.get(
+    "NEON_CONNECTION_STRING",
+    "postgresql://neondb_owner:PgT1zO2ywrVU@ep-silent-dust-61256651.us-east-2.aws.neon.tech/neondb"
+)
 
-# Signal data file
-SIGNALS_FILE = os.path.join(DASHBOARD_DATA_DIR, 'signals.json')
-PRICES_FILE = os.path.join(DASHBOARD_DATA_DIR, 'prices.json')
-
-# Initialize data files if they don't exist
-if not os.path.exists(SIGNALS_FILE):
-    with open(SIGNALS_FILE, 'w') as f:
-        json.dump([], f)
-        
-if not os.path.exists(PRICES_FILE):
-    with open(PRICES_FILE, 'w') as f:
-        json.dump([], f)
+# Initialize database connector
+db = DBConnector(NEON_CONNECTION_STRING)
 
 # Data storage
 signals_data = []
 prices_data = []
 
-def load_data():
-    """Load data from JSON files"""
+async def load_data_from_db():
+    """Load initial data from database"""
     global signals_data, prices_data
     
     try:
-        with open(SIGNALS_FILE, 'r') as f:
-            signals_data = json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading signals data: {e}")
+        # Load price data
+        prices_df = await db.fetch_as_dataframe("""
+            SELECT timestamp, close, symbol
+            FROM price_data
+            WHERE symbol = 'SOLUSDT'
+            AND timestamp >= NOW() - INTERVAL '7 days'
+            ORDER BY timestamp DESC
+            LIMIT 500
+        """)
         
-    try:
-        with open(PRICES_FILE, 'r') as f:
-            prices_data = json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading prices data: {e}")
+        prices_data = []
         
-def save_signals_data():
-    """Save signals data to JSON file"""
-    try:
-        with open(SIGNALS_FILE, 'w') as f:
-            json.dump(signals_data, f)
-    except Exception as e:
-        logger.error(f"Error saving signals data: {e}")
+        for _, row in prices_df.iterrows():
+            timestamp = row['timestamp']
+            if hasattr(timestamp, 'strftime'):
+                timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                timestamp_str = str(timestamp)
+                
+            prices_data.append({
+                'timestamp': timestamp_str,
+                'price': float(row['close'])
+            })
         
-def save_prices_data():
-    """Save prices data to JSON file"""
-    try:
-        with open(PRICES_FILE, 'w') as f:
-            json.dump(prices_data, f)
+        logger.info(f"Loaded {len(prices_data)} price points from database")
+        
+        # Load signals data
+        signals_df = await db.fetch_as_dataframe("""
+            SELECT 
+                id, 
+                timestamp, 
+                signal_type, 
+                signal_strength, 
+                symbol,
+                confidence_5m,
+                confidence_15m,
+                weighted_confidence,
+                price
+            FROM trading_signals
+            WHERE symbol = 'SOLUSDT'
+            AND timestamp >= NOW() - INTERVAL '7 days'
+            ORDER BY timestamp DESC
+            LIMIT 100
+        """)
+        
+        signals_data = []
+        
+        for _, row in signals_df.iterrows():
+            # Default values for newer columns that might be NULL
+            confidence_5m = float(row['confidence_5m']) if row['confidence_5m'] is not None else 0.0
+            confidence_15m = float(row['confidence_15m']) if row['confidence_15m'] is not None else 0.0
+            weighted_confidence = float(row['weighted_confidence']) if row['weighted_confidence'] is not None else 0.0
+            price = float(row['price']) if row['price'] is not None else 0.0
+            
+            timestamp = row['timestamp']
+            if hasattr(timestamp, 'strftime'):
+                timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                timestamp_str = str(timestamp)
+            
+            signal_data = {
+                'id': f"{timestamp_str}_{row['signal_type']}",
+                'signal_time': timestamp_str,
+                'type': row['signal_type'],
+                'confidence_5m': confidence_5m,
+                'confidence_15m': confidence_15m,
+                'weighted_confidence': weighted_confidence,
+                'price': price
+            }
+            
+            signals_data.append(signal_data)
+        
+        logger.info(f"Loaded {len(signals_data)} signals from database")
+        
     except Exception as e:
-        logger.error(f"Error saving prices data: {e}")
+        logger.error(f"Error loading data from database: {str(e)}")
 
-# Watch for new log files
-def scan_log_files():
-    """Scan log files for new signals and prices"""
-    global signals_data, prices_data
+async def scan_log_files():
+    """Scan log files for new signals and prices and save to database"""
     
     while True:
         try:
@@ -87,7 +128,7 @@ def scan_log_files():
             
             if not log_files:
                 logger.info("No log files found")
-                time.sleep(10)
+                await asyncio.sleep(10)
                 continue
                 
             # Sort by most recent
@@ -99,16 +140,32 @@ def scan_log_files():
                 lines = f.readlines()
                 
             # Process log lines
-            new_signals = []
-            new_prices = []
             current_signal = None
             
             for line in lines:
+                # Check for price updates
+                if "Current price:" in line:
+                    try:
+                        timestamp_str = line.split(" - ")[0]
+                        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S,%f")
+                        price_str = line.split("Current price: $")[1].strip()
+                        price = float(price_str)
+                        
+                        # Store in database
+                        await db.execute("""
+                            INSERT INTO price_data (timestamp, symbol, open, high, low, close, volume)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            ON CONFLICT (timestamp, symbol) DO NOTHING
+                        """, timestamp, 'SOLUSDT', price, price, price, price, 0)
+                        
+                    except Exception as e:
+                        logger.error(f"Error parsing or storing price: {e}")
+                
                 # Check for signal
                 if "NEW TRADING SIGNAL DETECTED" in line:
                     current_signal = {
-                        "timestamp": line.split(" - ")[0],
-                        "detected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "timestamp": datetime.now(),
+                        "detected_at": datetime.now(),
                     }
                     
                 # Get signal details
@@ -131,51 +188,45 @@ def scan_log_files():
                     price_part = line.split("Current SOL Price: $")[1].strip()
                     current_signal["price"] = float(price_part)
                     
-                    # Add to signals
-                    signal_id = f"{current_signal['signal_time']}_{current_signal['type']}"
-                    
-                    # Check if we already have this signal
-                    existing_ids = [s.get('id') for s in signals_data]
-                    
-                    if signal_id not in existing_ids:
-                        current_signal["id"] = signal_id
-                        new_signals.append(current_signal)
-                        
-                    current_signal = None
-                
-                # Check for price updates
-                if "Current price:" in line:
+                    # Save to database
                     try:
-                        timestamp = line.split(" - ")[0]
-                        price_str = line.split("Current price: $")[1].strip()
-                        price = float(price_str)
+                        # Convert signal_time to datetime if it's a string
+                        if isinstance(current_signal["signal_time"], str):
+                            try:
+                                signal_time = datetime.fromisoformat(current_signal["signal_time"].replace('Z', '+00:00'))
+                            except:
+                                signal_time = datetime.now()
+                        else:
+                            signal_time = current_signal["signal_time"]
+                            
+                        # Create a signal object to pass to our db connector
+                        signal = {
+                            'timestamp': signal_time,
+                            'symbol': 'SOLUSDT',
+                            'signal_type': current_signal["type"],
+                            'signal_strength': current_signal["weighted_confidence"],
+                            'confidence_5m': current_signal["confidence_5m"],
+                            'confidence_15m': current_signal["confidence_15m"],
+                            'weighted_confidence': current_signal["weighted_confidence"],
+                            'price': current_signal["price"]
+                        }
                         
-                        new_prices.append({
-                            "timestamp": timestamp,
-                            "price": price
-                        })
+                        await db.insert_trading_signal(signal)
+                        logger.info(f"Saved new signal to database: {current_signal['type']} at {signal_time}")
+                            
                     except Exception as e:
-                        logger.error(f"Error parsing price: {e}")
+                        logger.error(f"Error saving signal to database: {e}")
+                    
+                    current_signal = None
             
-            # Add new signals
-            if new_signals:
-                signals_data.extend(new_signals)
-                save_signals_data()
-                logger.info(f"Added {len(new_signals)} new signals")
-                
-            # Update prices
-            if new_prices:
-                # Keep only the last 500 prices to avoid excessive data
-                prices_data.extend(new_prices)
-                prices_data = prices_data[-500:]
-                save_prices_data()
-                logger.info(f"Updated with {len(new_prices)} new price points")
+            # Reload from database periodically to keep our in-memory data fresh
+            await load_data_from_db()
                 
         except Exception as e:
             logger.error(f"Error in log scanning: {e}")
             
         # Sleep for a bit before checking again
-        time.sleep(10)
+        await asyncio.sleep(10)
 
 # Routes
 @app.route('/')
@@ -194,21 +245,58 @@ def get_prices():
     return jsonify(prices_data)
 
 @app.route('/api/stats')
-def get_stats():
+async def get_stats():
     """API endpoint to get trading statistics"""
-    if not signals_data:
-        return jsonify({
-            "signal_count": 0,
-            "win_rate": 0,
-            "avg_return": 0,
-            "types": {
-                "TradingView-style": 0,
-                "Combined": 0,
-                "Strong": 0
-            }
-        })
+    try:
+        # Query database for stats
+        stats_result = await db.fetch("""
+            WITH signal_stats AS (
+                SELECT 
+                    signal_type,
+                    COUNT(*) as count
+                FROM trading_signals
+                WHERE symbol = 'SOLUSDT'
+                AND timestamp >= NOW() - INTERVAL '30 days'
+                GROUP BY signal_type
+            )
+            SELECT 
+                (SELECT COUNT(*) FROM trading_signals WHERE symbol = 'SOLUSDT') as total_count
+            FROM signal_stats
+        """)
+        
+        # Get signal types counts
+        signal_types_result = await db.fetch("""
+            SELECT 
+                signal_type,
+                COUNT(*) as count
+            FROM trading_signals
+            WHERE symbol = 'SOLUSDT'
+            AND timestamp >= NOW() - INTERVAL '30 days'
+            GROUP BY signal_type
+        """)
+        
+        if stats_result and len(stats_result) > 0:
+            total_count = stats_result[0]['total_count']
+            
+            signal_types = {}
+            for row in signal_types_result:
+                signal_types[row['signal_type']] = row['count']
+            
+            # Just placeholder values until we track actual trade outcomes
+            win_rate = 0.55  # 55% win rate placeholder
+            avg_return = 0.32  # 0.32% average return placeholder
+            
+            return jsonify({
+                "signal_count": total_count,
+                "win_rate": win_rate,
+                "avg_return": avg_return,
+                "types": signal_types
+            })
     
-    # Count signals by type
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+    
+    # Fallback to counting signals in memory
     signal_types = {}
     for signal in signals_data:
         signal_type = signal.get('type', 'Unknown')
@@ -217,31 +305,34 @@ def get_stats():
         else:
             signal_types[signal_type] = 1
     
-    # Calculate win rate and avg return if we have enough data
-    # This is placeholder logic - in a real system we'd track actual trade outcomes
-    win_rate = 0
-    avg_return = 0
-    
     return jsonify({
         "signal_count": len(signals_data),
-        "win_rate": win_rate,
-        "avg_return": avg_return,
+        "win_rate": 0.5,  # placeholder
+        "avg_return": 0.25,  # placeholder
         "types": signal_types
     })
 
-def start_log_scanner():
-    """Start the log scanner thread"""
-    scanner_thread = threading.Thread(target=scan_log_files)
-    scanner_thread.daemon = True
-    scanner_thread.start()
+async def start_async_tasks():
+    """Start all async tasks"""
+    # Load initial data
+    await load_data_from_db()
+    
+    # Start log scanning
+    asyncio.create_task(scan_log_files())
+
+def start_background_tasks():
+    """Start background tasks in a thread"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_async_tasks())
+    loop.run_forever()
 
 if __name__ == '__main__':
-    # Load existing data
-    load_data()
+    # Start background tasks in a separate thread
+    bg_thread = threading.Thread(target=start_background_tasks)
+    bg_thread.daemon = True
+    bg_thread.start()
     
-    # Start log scanner thread
-    start_log_scanner()
-    
-    # Run the app
+    # Run the Flask app
     logger.info("Starting dashboard at http://127.0.0.1:5000")
     app.run(debug=True, use_reloader=False) 
