@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Run Lorentzian Model Comparison
+Run Lorentzian Model Evaluation
 
-This script provides a simple way to run the advanced model comparison
+This script provides a simple way to run the advanced model evaluation
 with different configurations. It allows testing of different trading
 pairs, timeframes, and market types to compare the performance of
 different Lorentzian model implementations.
 
 Usage examples:
-- Basic comparison with default settings:
+- Basic evaluation with default settings:
   python run_comparison.py
 
 - Compare models on Binance BTC futures market:
@@ -36,8 +36,8 @@ os.environ["MPLBACKEND"] = "Agg"  # Use non-interactive backend
 async def run_comparison(args):
     """Run the comparison with the given arguments"""
     try:
-        # Import the main function from the comparison script
-        from src.comparison.compare_with_backtester import main
+        # Import the main function from the evaluation script
+        from model_evaluation.compare_with_backtester import main
 
         # Override sys.argv with our arguments for the parser inside main()
         original_argv = sys.argv.copy()
@@ -68,7 +68,7 @@ async def run_comparison(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Lorentzian Model Comparison")
+    parser = argparse.ArgumentParser(description="Run Lorentzian Model Evaluation")
     parser.add_argument(
         "--config",
         default="default",

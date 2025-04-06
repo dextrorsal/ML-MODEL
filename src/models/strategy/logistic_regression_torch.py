@@ -1,23 +1,22 @@
 """
-Enhanced Logistic Regression with PyTorch Implementation
+TradingView-Style Logistic Regression with PyTorch Acceleration
 
-This module provides a PyTorch-based implementation of logistic regression for trading,
-combining traditional logistic regression with modern deep learning capabilities.
+This module implements a classification-based Logistic Regression algorithm for trading,
+similar to TradingView's popular Logistic Regression indicator but with GPU acceleration.
 
-Features:
-- GPU acceleration support
-- Optional deep neural network mode
-- Pine Script compatibility
-- Real-time signal generation
-- Customizable filters (volatility, volume)
-- Proper error handling and validation
-- Built-in visualization tools
-- Backtesting metrics
+Key concepts:
+- Classification algorithm that separates price action into BUY/SELL signals
+- S-shaped sigmoid curve to better separate data points
+- Gradient descent for finding optimal parameters (weights)
+- Normalization for better prediction stability
+- Optional filters for volatility and volume
+
+GPU acceleration enables much faster training iterations and real-time signal generation
+compared to the original TradingView implementation.
 
 Example:
-    >>> indicator = EnhancedLogisticRegressionIndicator()
-    >>> df = pd.DataFrame({'close': [1, 2, 3, 4, 5]})
-    >>> signals = indicator.generate_signals(df)
+    >>> model = LogisticRegression(lookback=3, learning_rate=0.0009)
+    >>> signals = model.calculate_signals(df)
 """
 
 import numpy as np
@@ -30,496 +29,481 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
-from ....features.technical.indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
+from src.indicators.base_torch_indicator import (
+    BaseTorchIndicator,
+    TorchIndicatorConfig,
+)
 from models.configs import TradingConfig
 from contextlib import nullcontext
 
-@dataclass
-class LogisticConfig:
-    """Configuration for logistic regression model"""
-    use_deep: bool = False
-    use_amp: bool = False
-    learning_rate: float = 0.01
-    batch_size: int = 32
-    epochs: int = 100
-    hidden_size: int = 8
-    num_layers: int = 3
-    dropout: float = 0.1
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype: torch.dtype = torch.float32
-    lookback: int = 20
-    threshold: float = 0.5
-    volatility_filter: bool = True
-    volume_filter: bool = True
-    input_size: int = 1
-    num_epochs: int = 100
 
 @dataclass
-class BacktestMetrics:
-    """Container for backtesting metrics"""
+class LogisticConfig:
+    """Configuration for TradingView-style logistic regression model"""
+
+    lookback: int = 3  # Lookback window size (TradingView default)
+    learning_rate: float = 0.0009  # Learning rate for gradient descent
+    iterations: int = 1000  # Training iterations
+    norm_lookback: int = 20  # Lookback for normalization
+    use_amp: bool = False  # Use automatic mixed precision
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype: torch.dtype = torch.float32
+    volatility_filter: bool = True  # Filter signals with volatility
+    volume_filter: bool = True  # Filter signals with volume
+    threshold: float = 0.5  # Signal threshold
+    use_price_data: bool = True  # Use price directly for signal generation
+    holding_period: int = 5  # Number of bars to hold a position
+
+
+@dataclass
+class TradingMetrics:
+    """Container for trading metrics"""
+
     total_trades: int = 0
     winning_trades: int = 0
     losing_trades: int = 0
     win_rate: float = 0.0
-    avg_win: float = 0.0
-    avg_loss: float = 0.0
+    cumulative_return: float = 0.0
+    win_loss_ratio: float = 0.0
     profit_factor: float = 0.0
-    sharpe_ratio: float = 0.0
 
-def minimax_scale(value: float, data_window: np.ndarray) -> float:
+
+def minimax_scale(
+    value: float,
+    data_window: np.ndarray,
+    target_min: float = None,
+    target_max: float = None,
+) -> float:
     """
-    Scale value to window's min-max range with proper error handling
-    
+    Scale value to window's min-max range with TradingView-like normalization
+
     Args:
         value: Value to scale
         data_window: Window of data to use for scaling
-        
+        target_min: Optional target minimum value
+        target_max: Optional target maximum value
+
     Returns:
-        Scaled value between 0 and 1
+        Scaled value between target_min and target_max
     """
     try:
         window_min = np.min(data_window)
         window_max = np.max(data_window)
-        
+
         if np.isclose(window_max, window_min):
             return value
-            
-        return (value - window_min) / (window_max - window_min)
+
+        # If target range not specified, keep original range
+        if target_min is None:
+            target_min = window_min
+        if target_max is None:
+            target_max = window_max
+
+        return (target_max - target_min) * (value - window_min) / (
+            window_max - window_min
+        ) + target_min
     except Exception as e:
         print(f"Error in minimax scaling: {str(e)}")
         return value
 
-class SingleDimLogisticRegression:
-    """Fallback single-dimension logistic regression model"""
-    
-    def __init__(self, lookback: int = 3, learning_rate: float = 0.0009, iterations: int = 1000):
-        self.lookback = lookback
-        self.learning_rate = learning_rate
-        self.iterations = iterations
-    
-    def normalize_array(self, arr: np.ndarray) -> np.ndarray:
-        """Normalize array to [0,1] range"""
-        try:
-            arr_min = np.min(arr)
-            arr_max = np.max(arr)
-            if np.isclose(arr_max, arr_min):
-                return arr
-            return (arr - arr_min) / (arr_max - arr_min)
-        except Exception as e:
-            print(f"Error normalizing array: {str(e)}")
-            return arr
-    
-    def sigmoid(self, z: np.ndarray) -> np.ndarray:
-        """Compute sigmoid function with overflow protection"""
-        try:
-            return 1 / (1 + np.exp(-np.clip(z, -100, 100)))
-        except Exception as e:
-            print(f"Error in sigmoid calculation: {str(e)}")
-            return np.zeros_like(z)
-    
-    def fit_predict(self, X: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
-        """
-        Fit model and return (loss, prediction) for last point
-        
-        Args:
-            X: Input features
-            y: Target values
-            
-        Returns:
-            Tuple of (final loss, prediction for last point)
-        """
-        try:
-            # Normalize inputs
-            X_norm = self.normalize_array(X)
-            y_norm = self.normalize_array(y)
-            
-            # Initialize weight
-            w = 0.0
-            
-            # Gradient descent
-            for _ in range(self.iterations):
-                # Forward pass
-                z = X_norm * w
-                pred = self.sigmoid(z)
-                
-                # Compute gradient
-                error = pred - y_norm
-                gradient = np.mean(X_norm * error)
-                
-                # Update weight
-                w -= self.learning_rate * gradient
-            
-            # Final prediction for last point
-            final_pred = self.sigmoid(X_norm[-1] * w)
-            
-            # Compute final loss
-            final_loss = np.mean((self.sigmoid(X_norm * w) - y_norm) ** 2)
-            
-            return final_loss, final_pred
-            
-        except Exception as e:
-            print(f"Error in single-dim logistic regression: {str(e)}")
-            return 0.0, 0.5
 
-class LogisticRegressionTorch(nn.Module):
+class LogisticRegression:
     """
-    PyTorch implementation of logistic regression for trading
+    TradingView-style Logistic Regression implementation with PyTorch acceleration.
+    This implementation follows the approach from TradingView's popular indicator.
     """
-    
-    def __init__(self, input_dim: int = 2):
-        """
-        Initialize the logistic regression model
-        
-        Args:
-            input_dim: Dimension of the input features
-        """
-        super().__init__()
-        
-        # Simple logistic regression
-        self.logistic = nn.Sequential(
-            nn.Linear(input_dim, 1),
-            nn.Sigmoid()
-        )
-        
-        # Deep neural network for more complex patterns
-        self.deep_network = nn.Sequential(
-            nn.Linear(input_dim, 16),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(16, 8),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(8, 1),
-            nn.Sigmoid()
-        )
-        
-        self.use_deep = False
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the selected network
-        
-        Args:
-            x: Input tensor with shape (batch_size, features)
-            
-        Returns:
-            Predicted probabilities
-        """
-        # Ensure input has correct shape for the model
-        if x.dim() == 1:
-            x = x.unsqueeze(0)  # Add batch dimension if missing
-        
-        # Ensure x has the correct number of features
-        if x.shape[1] != self.logistic[0].in_features:
-            # If the number of features doesn't match, reshape or pad as needed
-            if x.shape[1] < self.logistic[0].in_features:
-                # Pad with zeros if fewer features than expected
-                padding = torch.zeros(x.shape[0], self.logistic[0].in_features - x.shape[1], 
-                                     device=x.device, dtype=x.dtype)
-                x = torch.cat([x, padding], dim=1)
-            else:
-                # Take only the first n features if there are more than expected
-                x = x[:, :self.logistic[0].in_features]
-        
-        return self.deep_network(x) if self.use_deep else self.logistic(x)
 
-class LogisticRegression(BaseTorchIndicator):
-    """
-    Logistic Regression indicator with PyTorch backend.
-    
-    This indicator combines traditional logistic regression with modern deep learning,
-    providing both simple and complex models for trading signal generation.
-    """
-    
-    def __init__(
-        self,
-        config: Optional[LogisticConfig] = None,
-        torch_config: Optional[TorchIndicatorConfig] = None
-    ):
+    def __init__(self, config: Optional[LogisticConfig] = None):
         """
-        Initialize the indicator with configuration settings.
-        
+        Initialize the TradingView-style logistic regression model
+
         Args:
-            config: Logistic regression specific configuration
-            torch_config: PyTorch configuration for GPU/CPU
+            config: Model configuration parameters
         """
-        super().__init__(torch_config)
-        
         self.config = config or LogisticConfig()
-        self.metrics = BacktestMetrics()
-        
-        # Initialize model
-        self.model = LogisticRegressionTorch().to(self.device)
-        self.model.use_deep = self.config.use_deep
-        
-        # Initialize optimizer
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
-        self.criterion = nn.BCELoss()
-        
-        # Initialize fallback model
-        self.fallback_model = SingleDimLogisticRegression(
-            lookback=self.config.lookback,
-            learning_rate=self.config.learning_rate,
-            iterations=self.config.epochs
-        )
-        
-    def prepare_data(self, data: pd.DataFrame) -> torch.Tensor:
-        """Prepare data for model input"""
-        # Convert to tensors and normalize
-        close = self.to_tensor(data['close'].values)
-        volume = self.to_tensor(data['volume'].values)
-        
-        # Create features
-        returns = torch.diff(close) / close[:-1]
-        vol_change = torch.diff(volume) / volume[:-1]
-        
-        # Pad to maintain length
-        returns = F.pad(returns, (1, 0))
-        vol_change = F.pad(vol_change, (1, 0))
-        
-        # Stack features
-        features = torch.stack([returns, vol_change], dim=1)
-        
-        return features
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the model
-        
+        self.metrics = TradingMetrics()
+        self.device = torch.device(self.config.device)
+        self.dtype = self.config.dtype
+
+        # Signal constants
+        self.BUY = 1
+        self.SELL = -1
+        self.HOLD = 0
+
+        # State variables
+        self.last_signal = self.HOLD
+        self.holding_counter = 0
+        self.last_price = 0.0
+
+    def to_tensor(self, data):
+        """Convert numpy array to PyTorch tensor"""
+        if isinstance(data, torch.Tensor):
+            return data.to(device=self.device, dtype=self.dtype)
+        return torch.tensor(data, device=self.device, dtype=self.dtype)
+
+    def sigmoid(self, z):
+        """Compute sigmoid function with PyTorch"""
+        return torch.sigmoid(z)
+
+    def dot_product(self, v, w):
+        """Compute dot product with proper broadcasting"""
+        return torch.sum(v * w)
+
+    def logistic_regression(self, X, Y, lookback, lr, iterations):
+        """
+        PyTorch implementation of TradingView's logistic regression algorithm
+
         Args:
-            x: Input tensor of shape (batch_size, n_features) or (n_features,)
-            
+            X: Features tensor
+            Y: Target tensor
+            lookback: Lookback window size
+            lr: Learning rate
+            iterations: Number of training iterations
+
         Returns:
-            Tensor of predictions
+            Tuple of (loss, prediction)
         """
-        # Add batch dimension if input is 1D
-        if x.dim() == 1:
-            x = x.unsqueeze(0)
-        # Flatten if input has more than 2 dimensions
-        elif x.dim() > 2:
-            x = x.view(x.size(0), -1)
-            
-        # Get predictions from model
-        predictions = self.model(x)
-        
-        # Generate signals based on predictions
-        buy_signals = torch.zeros_like(predictions, dtype=self.dtype)
-        sell_signals = torch.zeros_like(predictions, dtype=self.dtype)
-        
-        # Set signals based on threshold
-        buy_signals[predictions > self.config.threshold] = 1
-        sell_signals[predictions < -self.config.threshold] = 1
-        
-        return {
-            'predictions': predictions.squeeze(),
-            'buy_signals': buy_signals.squeeze(),
-            'sell_signals': sell_signals.squeeze()
-        }
-    
-    def calculate_signals(self, data: pd.DataFrame) -> Dict[str, torch.Tensor]:
+        # Convert to tensors if needed
+        X = self.to_tensor(X)
+        Y = self.to_tensor(Y)
+
+        # Initialize weight
+        w = torch.zeros(1, device=self.device, dtype=self.dtype)
+
+        # Gradient descent loop
+        for i in range(iterations):
+            with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
+                # Forward pass
+                z = X * w
+                hypothesis = self.sigmoid(z)
+
+                # Compute loss (binary cross-entropy)
+                eps = 1e-7  # small value to avoid log(0)
+                loss = -torch.mean(
+                    Y * torch.log(hypothesis + eps)
+                    + (1.0 - Y) * torch.log(1.0 - hypothesis + eps)
+                )
+
+                # Compute gradient
+                gradient = torch.mean(X * (hypothesis - Y))
+
+                # Update weights
+                w = w - lr * gradient
+
+        # Final prediction
+        final_pred = self.sigmoid(X[-1] * w)
+
+        return loss.item(), final_pred.item()
+
+    def volatility_break(self, df, i):
+        """Check if volatility is increasing (ATR1 > ATR10)"""
+        if "atr1" in df.columns and "atr10" in df.columns:
+            return df["atr1"].iloc[i] > df["atr10"].iloc[i]
+        elif "atr" in df.columns:
+            # If only one ATR column, compare with shifted version
+            return df["atr"].iloc[i] > df["atr"].iloc[max(0, i - 9)]
+        else:
+            # Calculate ATR on the fly if not available
+            tr = max(
+                df["high"].iloc[i] - df["low"].iloc[i],
+                abs(df["high"].iloc[i] - df["close"].iloc[max(0, i - 1)]),
+                abs(df["low"].iloc[i] - df["close"].iloc[max(0, i - 1)]),
+            )
+            tr_10 = (
+                sum(
+                    [
+                        max(
+                            df["high"].iloc[max(0, i - j)]
+                            - df["low"].iloc[max(0, i - j)],
+                            abs(
+                                df["high"].iloc[max(0, i - j)]
+                                - df["close"].iloc[max(0, i - j - 1)]
+                            ),
+                            abs(
+                                df["low"].iloc[max(0, i - j)]
+                                - df["close"].iloc[max(0, i - j - 1)]
+                            ),
+                        )
+                        for j in range(10)
+                    ]
+                )
+                / 10
+            )
+            return tr > tr_10
+
+    def volume_break(self, df, i):
+        """Check if volume RSI is above threshold (49)"""
+        if "volume_rsi" in df.columns:
+            return df["volume_rsi"].iloc[i] > 49
+        elif "volume" in df.columns:
+            # Calculate a simple volume ratio if RSI not available
+            recent_vol = df["volume"].iloc[max(0, i - 13) : i + 1].mean()
+            older_vol = df["volume"].iloc[max(0, i - 27) : max(0, i - 13)].mean()
+            return recent_vol > older_vol
+        return True  # Default to True if no volume data
+
+    def prepare_data(self, df):
         """
-        Calculate trading signals from data
-        
+        Prepare data for logistic regression processing
+
         Args:
-            data: DataFrame with OHLCV data
-            
+            df: DataFrame with OHLCV data
+
         Returns:
-            Dictionary with signals and predictions
+            Tuple of price, base and synthetic datasets
         """
-        # Prepare features
-        features = self.prepare_data(data)
-        
-        # Generate predictions
-        with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
-            results = self.forward(features)
-        
-        return results
-    
-    def train_epoch(self, features: torch.Tensor, targets: torch.Tensor):
-        """Train model for one epoch"""
-        self.model.train()
-        
-        # Create data loader
-        dataset = torch.utils.data.TensorDataset(features, targets)
-        loader = torch.utils.data.DataLoader(
-            dataset, 
-            batch_size=self.config.batch_size,
-            shuffle=True
-        )
-        
-        total_loss = 0
-        for batch_features, batch_targets in loader:
-            self.optimizer.zero_grad()
-            
-            # Forward pass
-            predictions = self.model(batch_features)
-            loss = self.criterion(predictions, batch_targets)
-            
-            # Backward pass
-            loss.backward()
-            self.optimizer.step()
-            
-            total_loss += loss.item()
-            
-        return total_loss / len(loader)
-    
-    def update_metrics(self, current_price: float, signal: int, last_signal: int) -> None:
-        """Update trading metrics"""
-        if last_signal != 0 and signal != last_signal:
-            self.metrics.total_trades += 1
-            pnl = (current_price - self.last_price) * last_signal
-            
-            if pnl > 0:
-                self.metrics.winning_trades += 1
-                self.metrics.avg_win = ((self.metrics.avg_win * 
-                    (self.metrics.winning_trades - 1) + pnl) / 
-                    self.metrics.winning_trades)
-            else:
-                self.metrics.losing_trades += 1
-                self.metrics.avg_loss = ((self.metrics.avg_loss * 
-                    (self.metrics.losing_trades - 1) + abs(pnl)) / 
-                    self.metrics.losing_trades)
-            
-            if self.metrics.total_trades > 0:
-                self.metrics.win_rate = (self.metrics.winning_trades / 
-                    self.metrics.total_trades)
-                
-            if self.metrics.avg_loss > 0:
-                self.metrics.profit_factor = ((self.metrics.avg_win * 
-                    self.metrics.winning_trades) / 
-                    (self.metrics.avg_loss * self.metrics.losing_trades))
-        
-        self.last_price = current_price
-    
-    def plot_signals(self, df: pd.DataFrame, signals: Dict[str, pd.Series]) -> None:
-        """Plot signals and predictions"""
-        try:
-            import matplotlib.pyplot as plt
-            
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), height_ratios=[2, 1])
-            
-            # Plot price and signals
-            ax1.plot(df.index, df['close'], label='Price', alpha=0.7)
-            buy_points = df.index[signals['buy_signals'] == 1]
-            sell_points = df.index[signals['sell_signals'] == 1]
-            
-            if len(buy_points) > 0:
-                ax1.scatter(buy_points, df.loc[buy_points, 'close'], 
-                          color='green', marker='^', label='Buy')
-            if len(sell_points) > 0:
-                ax1.scatter(sell_points, df.loc[sell_points, 'close'], 
-                          color='red', marker='v', label='Sell')
-            
-            ax1.set_title('Price with Logistic Regression Signals')
-            ax1.legend()
-            
-            # Plot predictions
-            ax2.plot(df.index, signals['predictions'], label='Prediction', color='blue')
-            ax2.axhline(y=self.config.threshold, color='r', linestyle='--', alpha=0.5)
-            ax2.axhline(y=1-self.config.threshold, color='g', linestyle='--', alpha=0.5)
-            ax2.set_title('Model Predictions')
-            
-            plt.tight_layout()
-            plt.show()
-            
-        except Exception as e:
-            print(f"Error plotting signals: {str(e)}")
-    
-    def get_metrics(self) -> Dict:
-        """Get current trading metrics"""
-        return {
-            'total_trades': self.metrics.total_trades,
-            'win_rate': self.metrics.win_rate,
-            'profit_factor': self.metrics.profit_factor,
-            'avg_win': self.metrics.avg_win,
-            'avg_loss': self.metrics.avg_loss,
-            'sharpe_ratio': self.metrics.sharpe_ratio
-        }
+        # Use close price by default, could be extended to support other price types
+        price = df["close"].values
 
-    def _generate_signals_fallback(self, df: pd.DataFrame) -> pd.Series:
-        """Generate signals using fallback single-dim logistic regression"""
-        signals = pd.Series(0, index=df.index)
-        current_signal = 0
-        bar_count = 0
+        # Generate synthetic dataset similar to TradingView implementation
+        synth_data = np.log(np.abs(np.power(price, 2) - 1) + 0.5)
 
-        # Get price data
-        close = df['close'].values
-        volume = df['volume'].values if 'volume' in df.columns else np.ones_like(close)
+        return price, price, synth_data
 
-        for i in range(self.config.lookback, len(df)):
+    def calculate_signals(self, df):
+        """
+        Calculate trading signals using TradingView-style logistic regression
+
+        Args:
+            df: DataFrame with OHLCV data
+
+        Returns:
+            DataFrame with signals and predictions
+        """
+        lookback = self.config.lookback
+        lr = self.config.learning_rate
+        iterations = self.config.iterations
+        norm_lookback = self.config.norm_lookback
+
+        # Initialize result arrays
+        signals = np.zeros(len(df))
+        losses = np.zeros(len(df))
+        predictions = np.zeros(len(df))
+
+        # Prepare price and synthetic data
+        price, base_data, synth_data = self.prepare_data(df)
+
+        # Trading state variables
+        current_signal = self.HOLD
+        holding_counter = 0
+
+        # Process each bar (starting after lookback period)
+        for i in range(lookback, len(df)):
             try:
                 # Prepare data windows
-                price_window = close[i-self.config.lookback:i]
-                volume_window = volume[i-self.config.lookback:i]
-                
-                # Get prediction
-                loss, pred = self.fallback_model.fit_predict(price_window, volume_window)
-                
-                # Scale values
-                if i >= self.config.lookback + 2:
-                    scaled_loss = minimax_scale(loss, close[i-2:i])
-                    scaled_pred = minimax_scale(pred, volume[i-2:i])
-                    
-                    # Generate signal
-                    new_signal = self._calculate_signal(
-                        current_price=close[i],
-                        scaled_loss=scaled_loss,
-                        scaled_pred=scaled_pred,
-                        df=df,
-                        i=i
+                X = base_data[i - lookback : i]
+                Y = synth_data[i - lookback : i]
+
+                # Run logistic regression
+                loss, pred = self.logistic_regression(X, Y, lookback, lr, iterations)
+
+                # Scale values to price range for better visualization
+                if i >= lookback + 2:
+                    min_price = np.min(price[max(0, i - norm_lookback) : i])
+                    max_price = np.max(price[max(0, i - norm_lookback) : i])
+
+                    scaled_loss = minimax_scale(
+                        loss, price[max(0, i - norm_lookback) : i], min_price, max_price
                     )
-                    
+                    scaled_pred = minimax_scale(
+                        pred, price[max(0, i - norm_lookback) : i], min_price, max_price
+                    )
+
+                    # Store for visualization
+                    losses[i] = scaled_loss
+                    predictions[i] = scaled_pred
+
+                    # Calculate signal based on TradingView's approach
+                    # Check filters
+                    passes_filter = True
+                    if self.config.volatility_filter:
+                        passes_filter = passes_filter and self.volatility_break(df, i)
+                    if self.config.volume_filter:
+                        passes_filter = passes_filter and self.volume_break(df, i)
+
+                    # Generate signal
+                    if self.config.use_price_data:
+                        # Direct price comparison method
+                        if price[i] < scaled_loss and passes_filter:
+                            new_signal = self.SELL
+                        elif price[i] > scaled_loss and passes_filter:
+                            new_signal = self.BUY
+                        else:
+                            new_signal = current_signal
+                    else:
+                        # Crossover method
+                        if (
+                            scaled_loss > scaled_pred
+                            and passes_filter
+                            and scaled_loss > scaled_pred
+                        ):
+                            new_signal = self.SELL
+                        elif (
+                            scaled_loss < scaled_pred
+                            and passes_filter
+                            and scaled_loss < scaled_pred
+                        ):
+                            new_signal = self.BUY
+                        else:
+                            new_signal = current_signal
+
                     # Apply holding period logic
                     if new_signal != current_signal:
-                        bar_count = 0
+                        holding_counter = 0
                     else:
-                        bar_count += 1
-                        
-                    if bar_count >= 5 and current_signal != 0:
-                        new_signal = 0
-                        bar_count = 0
-                    
-                    signals.iloc[i] = new_signal
+                        holding_counter += 1
+
+                    if (
+                        holding_counter >= self.config.holding_period
+                        and current_signal != self.HOLD
+                    ):
+                        new_signal = self.HOLD
+                        holding_counter = 0
+
+                    signals[i] = new_signal
                     current_signal = new_signal
-                    
+
+                    # Update metrics when signal changes
+                    if i > lookback + 2 and signals[i] != signals[i - 1]:
+                        self.update_metrics(price[i], signals[i], signals[i - 1])
+
             except Exception as e:
-                print(f"Error in fallback signal generation at bar {i}: {str(e)}")
-                signals.iloc[i] = 0
+                print(f"Error in signal generation at bar {i}: {str(e)}")
+                signals[i] = current_signal
 
-        return signals
+        # Create result dataframe
+        result = pd.DataFrame(
+            {
+                "close": df["close"],
+                "signal": signals,
+                "loss": losses,
+                "prediction": predictions,
+            }
+        )
 
-    def _calculate_signal(self, current_price: float, scaled_loss: float, 
-                         scaled_pred: float, df: pd.DataFrame, i: int) -> int:
-        """Calculate trading signal with proper error handling"""
+        return result
+
+    def update_metrics(self, current_price, signal, last_signal):
+        """
+        Update trading metrics based on signals
+
+        Args:
+            current_price: Current price
+            signal: Current signal
+            last_signal: Previous signal
+
+        Returns:
+            Updated metrics
+        """
+        # Skip if we don't have a previous price
+        if self.last_price == 0:
+            self.last_price = current_price
+            return
+
+        # Calculate P&L based on the last signal
+        pnl = 0
+        if last_signal == self.BUY and signal != self.BUY:
+            # Close a long position
+            pnl = current_price - self.last_price
+            self.metrics.total_trades += 1
+            if pnl > 0:
+                self.metrics.winning_trades += 1
+            else:
+                self.metrics.losing_trades += 1
+
+        elif last_signal == self.SELL and signal != self.SELL:
+            # Close a short position
+            pnl = self.last_price - current_price
+            self.metrics.total_trades += 1
+            if pnl > 0:
+                self.metrics.winning_trades += 1
+            else:
+                self.metrics.losing_trades += 1
+
+        # Update cumulative return
+        if pnl != 0 and self.last_price != 0:
+            self.metrics.cumulative_return += pnl / self.last_price * 100
+
+        # Update win rate and win/loss ratio
+        if self.metrics.total_trades > 0:
+            self.metrics.win_rate = (
+                self.metrics.winning_trades / self.metrics.total_trades
+            )
+            if self.metrics.losing_trades > 0:
+                self.metrics.win_loss_ratio = (
+                    self.metrics.winning_trades / self.metrics.losing_trades
+                )
+            else:
+                self.metrics.win_loss_ratio = float("inf")  # All wins, no losses
+
+        # Update last price
+        self.last_price = current_price
+
+    def get_metrics(self):
+        """Get current trading metrics"""
+        return {
+            "total_trades": self.metrics.total_trades,
+            "winning_trades": self.metrics.winning_trades,
+            "losing_trades": self.metrics.losing_trades,
+            "win_rate": self.metrics.win_rate,
+            "win_loss_ratio": self.metrics.win_loss_ratio,
+            "cumulative_return": self.metrics.cumulative_return,
+        }
+
+    def plot_signals(self, df, result):
+        """
+        Plot trading signals and prediction curves
+
+        Args:
+            df: Original price dataframe
+            result: DataFrame with signals and predictions
+        """
         try:
-            if not self._passes_filter(df, i):
-                return 0
-                
-            if scaled_pred > scaled_loss:
-                return 1   # BUY
-            elif scaled_pred < scaled_loss:
-                return -1  # SELL
-            return 0
-            
+            import matplotlib.pyplot as plt
+
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), height_ratios=[2, 1])
+
+            # Plot price and signals
+            ax1.plot(df.index, df["close"], label="Price", alpha=0.7)
+
+            # Plot buy and sell signals
+            buy_points = df.index[result["signal"] == self.BUY]
+            sell_points = df.index[result["signal"] == self.SELL]
+
+            if len(buy_points) > 0:
+                ax1.scatter(
+                    buy_points,
+                    df.loc[buy_points, "close"],
+                    color="green",
+                    marker="^",
+                    label="Buy",
+                )
+            if len(sell_points) > 0:
+                ax1.scatter(
+                    sell_points,
+                    df.loc[sell_points, "close"],
+                    color="red",
+                    marker="v",
+                    label="Sell",
+                )
+
+            ax1.set_title("Price with Logistic Regression Signals")
+            ax1.legend()
+
+            # Plot prediction curves
+            ax2.plot(df.index, result["loss"], label="Loss", color="blue")
+            ax2.plot(df.index, result["prediction"], label="Prediction", color="lime")
+            ax2.set_title("TradingView-Style Logistic Regression Curves")
+            ax2.legend()
+
+            plt.tight_layout()
+            plt.show()
+
         except Exception as e:
-            print(f"Error in signal calculation: {str(e)}")
-            return 0
+            print(f"Error plotting signals: {str(e)}")
 
-    def _passes_filter(self, df: pd.DataFrame, i: int) -> bool:
-        """Check if current bar passes filtering criteria"""
-        try:
-            if self.config.volatility_filter:
-                atr1 = df['atr1'].iloc[i] if 'atr1' in df.columns else 0
-                atr10 = df['atr10'].iloc[i] if 'atr10' in df.columns else 0
-                if atr1 <= atr10:
-                    return False
 
-            if self.config.volume_filter:
-                if 'volume' not in df.columns:
-                    return True
-                rsi_vol = df['volume_rsi'].iloc[i] if 'volume_rsi' in df.columns else 0
-                if rsi_vol <= 49:
-                    return False
-
-            return True
-            
-        except Exception as e:
-            raise RuntimeError(f"Filter check failed: {str(e)}") 
+# Example usage:
+# model = LogisticRegression(lookback=3, learning_rate=0.0009)
+# result = model.calculate_signals(df)
+# model.plot_signals(df, result)

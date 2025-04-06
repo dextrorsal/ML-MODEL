@@ -72,15 +72,15 @@ Key directories:
 - `src/models/training/` - Model training utilities
 - `src/pattern-recognition/` - Pattern detection algorithms
 - `src/data/` - Data collection and processing
-- `src/comparison/` - Lorentzian model implementation comparison tools
+- `model-evaluation/` - Lorentzian model implementation comparison tools
 - `tests/` - Testing infrastructure
 - `docs/` - Detailed documentation
 - `scripts/dashboard/` - Web-based trading dashboard
 - `config_samples/` - Sample configurations for testing different trading strategies
 
-## 🔄 Lorentzian Model Comparison System
+## 🔄 Lorentzian Model Evaluation System
 
-The project includes a comprehensive framework for comparing different Lorentzian classifier implementations:
+The project includes a comprehensive framework for evaluating and comparing different Lorentzian classifier implementations:
 
 ### Implementations Compared
 - **Your Implementation**: Your custom implementation
@@ -90,8 +90,8 @@ The project includes a comprehensive framework for comparing different Lorentzia
 
 ### Configuration System
 
-Configure tests using:
-1. **JSON Configuration Files**: Complete test setups stored in `config_samples/`
+Configure evaluations using:
+1. **JSON Configuration Files**: Complete test setups stored in `model-evaluation/config_samples/`
 2. **Command-line Arguments**: Quick parameter adjustments
 3. **Hybrid Approach**: Load base config and override specific parameters
 
@@ -102,7 +102,7 @@ Sample configurations are provided for:
 
 ### Metrics & Visualization
 
-The comparison tool generates detailed metrics and visualizations:
+The evaluation tool generates detailed metrics and visualizations:
 - Win rates and return percentages
 - Drawdown and risk metrics
 - Trade statistics and equity curves
@@ -112,20 +112,20 @@ The comparison tool generates detailed metrics and visualizations:
 
 **Using a configuration file:**
 ```bash
-python src/comparison/compare_all_implementations.py --config config_samples/default_btc_config.json
+python model-evaluation/compare_all_implementations.py --config model-evaluation/config_samples/default_btc_config.json
 ```
 
 **With custom parameters:**
 ```bash
-python src/comparison/compare_all_implementations.py --config config_samples/eth_spot_config.json --position_size 0.2
+python model-evaluation/compare_all_implementations.py --config model-evaluation/config_samples/eth_spot_config.json --position_size 0.2
 ```
 
 **Saving a custom configuration:**
 ```bash
-python src/comparison/compare_all_implementations.py --symbol SOL/USDT --market_type futures --leverage 3 --save_config config_samples/my_sol_config.json
+python model-evaluation/compare_all_implementations.py --symbol SOL/USDT --market_type futures --leverage 3 --save_config model-evaluation/config_samples/my_sol_config.json
 ```
 
-See [src/comparison/README.md](src/comparison/README.md) for complete details on the comparison system.
+See [model-evaluation/README.md](model-evaluation/README.md) for complete details on the evaluation system.
 
 ## 🚀 Quick Start
 
@@ -165,7 +165,7 @@ See [src/comparison/README.md](src/comparison/README.md) for complete details on
 
 6. **Compare model implementations**
    ```bash
-   python src/comparison/compare_all_implementations.py --config config_samples/default_btc_config.json
+   python model-evaluation/compare_all_implementations.py --config model-evaluation/config_samples/default_btc_config.json
    ```
 
 7. **Start the complete trading system with dashboard**
