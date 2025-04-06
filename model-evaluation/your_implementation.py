@@ -375,3 +375,7 @@ class LorentzianANN:
         print(f"Model updated: {len(self.feature_arrays)} total samples")
 
         return self
+
+
+# Create alias for backward compatibility with model_evaluator.py
+YourImplementation = LorentzianANN

@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from contextlib import nullcontext
 
 # Update path to include src directory for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Import the real indicators from src/features
 from src.features.rsi import RSIIndicator
@@ -821,3 +821,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Alias for compatibility with model_evaluator.py
+AnalysisImplementation = LorentzianANN

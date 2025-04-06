@@ -1,106 +1,155 @@
-# Lorentzian Model Evaluation System
+# Model Evaluation Framework
 
-This tool evaluates and compares the performance of different Lorentzian classifier implementations using real or synthetic market data.
+This directory contains a consolidated framework for evaluating trading models and indicators.
+
+## Structure
+
+- `model_evaluator.py` - The main consolidated evaluation framework
+- Implementation files:
+  - `example_logistic_regression.py` - Example implementation of logistic regression
+  - `src_logistic_regression.py` - Source implementation of logistic regression
+  - `example_chandelier_exit.py` - Example implementation of Chandelier Exit
+  - `src_chandelier_exit.py` - Source implementation of Chandelier Exit
+- `data/` - Directory for data storage
+- `config_samples/` - Sample configuration files
+- `output/` - Output directory for results
+
+## Usage
+
+```bash
+# Basic usage with default configuration
+python model_evaluator.py
+
+# Use a specific configuration file
+python model_evaluator.py --config config_samples/default_config.json
+
+# Compare logistic regression implementations
+python model_evaluator.py --compare_logistic
+
+# Compare Chandelier Exit implementations
+python model_evaluator.py --compare_chandelier
+
+# Compare both types of implementations
+python model_evaluator.py --compare_logistic --compare_chandelier
+```
+
+## Configuration
+
+Configuration can be provided via:
+1. Command-line arguments
+2. Configuration JSON file
+
+Example configuration file:
+```json
+{
+  "exchange": {
+    "name": "binance",
+    "testnet": true
+  },
+  "data": {
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "start_date": "2023-01-01",
+    "end_date": "2023-08-01"
+  },
+  "backtest": {
+    "initial_balance": 10000.0,
+    "risk_per_trade": 2.0,
+    "fee_rate": 0.001
+  },
+  "output": {
+    "output_dir": "output",
+    "show_plots": true
+  },
+  "compare_logistic_regression": true,
+  "compare_chandelier_exit": true
+}
+```
+
+## Available Models
+
+### Logistic Regression
+- Binary classification model for BUY/SELL signals
+- Both plain PyTorch and advanced deep learning versions available
+
+### Chandelier Exit
+- Traditional indicator for trend following
+- Uses ATR for volatility-based stop loss placement
 
 ## Features
 
-- Compare 4 different Lorentzian classifier implementations
-- Test with real market data from Bitget or Binance
-- Backtest with configurable parameters
-- Paper trading simulation with starting balance and position sizing
-- Supports both spot and futures trading
-- Multiple output formats including charts and CSV reports
+- **Configuration Management**: Easily configure and save model and backtest parameters
+- **Data Fetching**: Automatically fetch historical data or use cached data
+- **Multiple Model Support**: Compare various model implementations
+  - Lorentzian Classifier implementations
+  - Logistic Regression implementations
+  - Chandelier Exit implementations
+- **Backtesting Engine**: Test models on historical data with realistic trading rules
+- **Performance Metrics**: Calculate comprehensive trading statistics
+- **Visualization**: Generate performance comparison charts
 
-## Configuration Options
+## Model Implementations
 
-You can configure the evaluation system using:
+The framework supports multiple model implementations:
 
-1. **Command-line arguments**: For quick changes to specific parameters
-2. **Configuration files**: For saving and reusing complete test configurations
-3. **A combination of both**: Load a config file and override specific settings
+### Lorentzian Classifier
 
-### Using Configuration Files
+- `your_implementation.py` - Your custom implementation
+- `standalone_implementation.py` - Standalone implementation
+- `analysis_implementation.py` - Analysis-focused implementation
+- `modern_pytorch_implementation.py` - Modern PyTorch implementation
 
-Sample configuration files are provided in the `config_samples` directory:
+### Logistic Regression
 
-- `default_btc_config.json`: BTC futures trading with 3x leverage
-- `eth_spot_config.json`: ETH spot trading
-- `sol_scalping_config.json`: SOL scalping setup with higher leverage
+- `example_logistic_regression.py` - Example implementation from strategy folder
+- `src_logistic_regression.py` - Your source implementation
 
-To use a configuration file:
+### Chandelier Exit
 
-```bash
-python model-evaluation/compare_all_implementations.py --config model-evaluation/config_samples/default_btc_config.json
-```
+- `example_chandelier_exit.py` - Example implementation from strategy folder
+- `src_chandelier_exit.py` - Your source implementation
 
-### Command-line Arguments
+## Output and Metrics
 
-You can override any configuration parameter using command-line arguments:
+The evaluator generates several metrics for each model:
 
-```bash
-python model-evaluation/compare_all_implementations.py --symbol SOL/USDT --starting_balance 5000 --position_size 0.1
-```
+- **Total Profit**: Total profit/loss
+- **Win Rate**: Percentage of winning trades
+- **Profit Factor**: Ratio of gross profit to gross loss
+- **Max Drawdown**: Maximum peak-to-trough decline
+- **Sharpe Ratio**: Risk-adjusted return
+- **Total Trades**: Number of trades executed
+- **Average Hold Time**: Average trade duration
 
-Or combine with a configuration file:
+## Visualization
 
-```bash
-python model-evaluation/compare_all_implementations.py --config model-evaluation/config_samples/eth_spot_config.json --position_size 0.2 --leverage 2
-```
+The framework generates several plots for visual comparison:
 
-### Saving Configurations
+- **Equity Curves**: Compare the balance growth of different models
+- **Drawdowns**: Compare the drawdowns of different models
+- **Trade Distribution**: Histogram of trade profit/loss for each model
 
-You can save your current configuration settings to a file:
+## How to Add New Models
 
-```bash
-python model-evaluation/compare_all_implementations.py --symbol BTC/USDT --starting_balance 10000 --save_config model-evaluation/my_custom_config.json
-```
+To add a new model implementation:
 
-## Available Parameters
+1. Create a new file with your model class
+2. Import the model in `model_evaluator.py`
+3. Add import handling in the imports section
+4. Create a wrapper class if needed
+5. Update the `create_model` factory function
+6. Add the model to your configuration
 
-| Parameter           | Description                                       | Default Value        |
-|---------------------|---------------------------------------------------|----------------------|
-| `--exchange`        | Exchange to use (binance or bitget)               | bitget               |
-| `--market_type`     | Market type (spot or futures)                     | spot                 |
-| `--symbol`          | Trading pair (BTC/USDT, ETH/USDT, SOL/USDT)       | SOL/USDT             |
-| `--timeframe`       | Chart timeframe (1m, 5m, 15m, 1h, 4h, 1d)         | 5m                   |
-| `--data_limit`      | Number of candles to fetch                        | 1000                 |
-| `--order_type`      | Order type (FOK, GTC, IOC)                        | GTC                  |
-| `--starting_balance`| Starting balance in USDT                          | 10000                |
-| `--position_size`   | Percentage of balance to use per trade (0.1 = 10%)| 0.1                  |
-| `--leverage`        | Leverage for futures trading                      | 1                    |
-| `--fee_rate`        | Trading fee percentage                            | 0.001                |
-| `--slippage`        | Slippage percentage                               | 0.0005               |
-| `--output_dir`      | Directory to save output files                    | results              |
+## Dependencies
 
-## Output Files
+- Python 3.8+
+- NumPy
+- Pandas
+- PyTorch
+- Matplotlib
+- ccxt (for data fetching)
+- tabulate (for pretty tables)
 
-The evaluation generates the following output files in the specified output directory:
+## License
 
-- `model_comparison.png`: Visual comparison of model signals
-- `model_performance_comparison.png`: Bar chart comparing key metrics
-- `equity_curves.png`: Account balance over time for each model
-- `model_comparison_results.csv`: Detailed performance metrics in CSV format
-
-## Running Evaluations
-
-Examples:
-
-1. **Basic evaluation with default settings**:
-   ```bash
-   python model-evaluation/compare_all_implementations.py
-   ```
-
-2. **Using a configuration file**:
-   ```bash
-   python model-evaluation/compare_all_implementations.py --config model-evaluation/config_samples/default_btc_config.json
-   ```
-
-3. **Custom settings via command line**:
-   ```bash
-   python model-evaluation/compare_all_implementations.py --symbol ETH/USDT --timeframe 15m --starting_balance 5000 --leverage 3
-   ```
-
-4. **Save your custom configuration**:
-   ```bash
-   python model-evaluation/compare_all_implementations.py --symbol BTC/USDT --leverage 5 --save_config model-evaluation/my_btc_config.json
-   ``` 
+MIT 
