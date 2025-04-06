@@ -4,17 +4,12 @@ This tool compares the performance of different Lorentzian classifier implementa
 
 ## Features
 
-- Compare 4 different Lorentzian classifier implementations:
-  - Your Implementation: Your custom implementation
-  - Modern PyTorch Implementation: GPU-accelerated implementation
-  - Standalone Implementation: Simplified standalone version
-  - Analysis Implementation: Analysis-oriented implementation
+- Compare 4 different Lorentzian classifier implementations
 - Test with real market data from Bitget or Binance
-- Backtest with configurable parameters including leverage and position sizing
-- Support for both spot and futures trading with configurable order types
-- Paper trading simulation with customizable starting balance
-- Comprehensive performance metrics and visualizations
-- Save results to customizable output directories
+- Backtest with configurable parameters
+- Paper trading simulation with starting balance and position sizing
+- Supports both spot and futures trading
+- Multiple output formats including charts and CSV reports
 
 ## Configuration Options
 
@@ -26,22 +21,16 @@ You can configure the comparison system using:
 
 ### Using Configuration Files
 
-Sample configuration files are provided in the `config_samples` directory at the project root:
+Sample configuration files are provided in the `config_samples` directory:
 
 - `default_btc_config.json`: BTC futures trading with 3x leverage
 - `eth_spot_config.json`: ETH spot trading
-- `sol_scalping_config.json`: SOL scalping setup with higher leverage and position size
+- `sol_scalping_config.json`: SOL scalping setup with higher leverage
 
 To use a configuration file:
 
 ```bash
-python compare_all_implementations.py --config ../../config_samples/default_btc_config.json
-```
-
-Or when running from the project root:
-
-```bash
-python src/comparison/compare_all_implementations.py --config config_samples/default_btc_config.json
+python compare_all_implementations.py --config config_samples/default_btc_config.json
 ```
 
 ### Command-line Arguments
@@ -55,7 +44,7 @@ python compare_all_implementations.py --symbol SOL/USDT --starting_balance 5000 
 Or combine with a configuration file:
 
 ```bash
-python compare_all_implementations.py --config ../../config_samples/eth_spot_config.json --position_size 0.2 --leverage 2
+python compare_all_implementations.py --config config_samples/eth_spot_config.json --position_size 0.2 --leverage 2
 ```
 
 ### Saving Configurations
@@ -63,7 +52,7 @@ python compare_all_implementations.py --config ../../config_samples/eth_spot_con
 You can save your current configuration settings to a file:
 
 ```bash
-python compare_all_implementations.py --symbol BTC/USDT --starting_balance 10000 --save_config ../../config_samples/my_custom_config.json
+python compare_all_implementations.py --symbol BTC/USDT --starting_balance 10000 --save_config my_custom_config.json
 ```
 
 ## Available Parameters
@@ -87,36 +76,10 @@ python compare_all_implementations.py --symbol BTC/USDT --starting_balance 10000
 
 The comparison generates the following output files in the specified output directory:
 
-- `model_comparison.png`: Visual comparison of model signals and price data
-- `model_performance_comparison.png`: Bar chart comparing key performance metrics
+- `model_comparison.png`: Visual comparison of model signals
+- `model_performance_comparison.png`: Bar chart comparing key metrics
 - `equity_curves.png`: Account balance over time for each model
 - `model_comparison_results.csv`: Detailed performance metrics in CSV format
-
-## Performance Metrics
-
-The system calculates and compares the following metrics for each implementation:
-
-- Win rate percentage
-- Total return percentage
-- Maximum drawdown
-- Sharpe ratio
-- Signal activity (percentage of non-hold signals)
-- Total number of trades
-- Distribution of buy/sell/hold signals
-- Average profit per trade
-- Profit factor (ratio of gross profits to gross losses)
-- Total fees paid
-
-## Trade Simulation
-
-The paper trading simulation provides detailed statistics including:
-- Win/loss counts and percentages
-- Profit factor
-- Win/loss streaks
-- Largest wins and losses
-- Average win and loss amounts
-- Portfolio growth and final balance
-- Total fees paid
 
 ## Running Comparisons
 
@@ -129,7 +92,7 @@ Examples:
 
 2. **Using a configuration file**:
    ```bash
-   python compare_all_implementations.py --config ../../config_samples/default_btc_config.json
+   python compare_all_implementations.py --config config_samples/default_btc_config.json
    ```
 
 3. **Custom settings via command line**:
@@ -139,10 +102,5 @@ Examples:
 
 4. **Save your custom configuration**:
    ```bash
-   python compare_all_implementations.py --symbol BTC/USDT --leverage 5 --save_config ../../config_samples/my_btc_config.json
-   ```
-
-5. **Using a specific output directory**:
-   ```bash
-   python compare_all_implementations.py --output_dir ../../results/my_test_results
+   python compare_all_implementations.py --symbol BTC/USDT --leverage 5 --save_config my_btc_config.json
    ``` 
