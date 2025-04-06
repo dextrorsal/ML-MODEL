@@ -1,10 +1,59 @@
 # 📊 Custom Technical Indicators
 
 ## Table of Contents
-1. [Lorentzian Classifier](#lorentzian-classifier)
-2. [Wave Trend Enhanced](#wave-trend-enhanced)
-3. [Custom RSI Implementation](#custom-rsi-implementation)
-4. [Custom CCI Implementation](#custom-cci-implementation)
+1. [PyTorch Acceleration](#pytorch-acceleration)
+2. [Indicator Organization](#indicator-organization)
+3. [Lorentzian Classifier](#lorentzian-classifier)
+4. [Wave Trend Enhanced](#wave-trend-enhanced)
+5. [Custom RSI Implementation](#custom-rsi-implementation)
+6. [Custom CCI Implementation](#custom-cci-implementation)
+7. [ADX Implementation](#adx-implementation)
+
+## PyTorch Acceleration
+
+All our technical indicators leverage PyTorch for GPU acceleration and automatic differentiation. This enables:
+
+- Up to 100x faster calculation on GPUs
+- Automatic differentiation for gradient-based optimization
+- Batch processing for efficient backtesting
+- Seamless integration with deep learning models
+
+### Base Indicator Implementation
+
+```python
+class BaseTorchIndicator(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.device = torch.device(config.device)
+        self.dtype = config.dtype
+        
+    def to_tensor(self, data):
+        """Convert data to PyTorch tensor"""
+        if isinstance(data, pd.Series):
+            data = data.values
+        if isinstance(data, np.ndarray):
+            data = torch.from_numpy(data)
+        return data.to(self.device).to(self.dtype)
+        
+    def calculate(self, data):
+        """Main calculation method with GPU acceleration"""
+        with torch.cuda.amp.autocast() if self.config.use_amp else nullcontext():
+            signals = self.calculate_signals(data)
+            
+        return {k: pd.Series(v.cpu().numpy(), index=data.index) 
+                for k, v in signals.items()}
+```
+
+## Indicator Organization
+
+Our indicators are organized into these key directories:
+
+```
+src/
+├── features/         # Core technical indicators (RSI, CCI, ADX, WaveTrend)
+├── indicators/       # Base indicator foundations
+└── models/strategy/  # Strategy indicators (Lorentzian, Logistic Regression, Chandelier)
+```
 
 ## Lorentzian Classifier
 
@@ -86,36 +135,74 @@ def wave_trend_cross(wt1, wt2):
 
 ## Custom RSI Implementation
 
-Enhanced RSI with smoothing and multiple timeframe analysis.
+Enhanced RSI with GPU acceleration and advanced signal processing.
 
 ### Features
-1. **Dual Smoothing**
+1. **PyTorch Implementation**
    ```python
-   def smooth_rsi(close, length=14, smooth=1):
-       # Calculate base RSI
-       rsi = talib.RSI(close, timeperiod=length)
-       
-       # Apply smoothing if specified
-       if smooth > 1:
-           rsi = talib.EMA(rsi, timeperiod=smooth)
-       
-       return rsi
+   class RSIIndicator(BaseTorchIndicator):
+       def __init__(self, period=14, overbought=70.0, oversold=30.0, device=None, dtype=None):
+           config = RSIConfig(
+               period=period,
+               overbought=overbought,
+               oversold=oversold,
+               device=device,
+               dtype=dtype
+           )
+           super().__init__(config)
+           
+       def forward(self, close):
+           # Calculate price changes
+           price_diff = torch.diff(close, dim=0)
+           padding = torch.zeros(1, device=self.device, dtype=self.dtype)
+           price_diff = torch.cat([padding, price_diff])
+   
+           # Separate gains and losses
+           gains = torch.where(price_diff > 0, price_diff, torch.zeros_like(price_diff))
+           losses = torch.where(price_diff < 0, -price_diff, torch.zeros_like(price_diff))
+   
+           # Calculate average gains and losses
+           avg_gains = self.torch_ema(gains, self.alpha.item())
+           avg_losses = self.torch_ema(losses, self.alpha.item())
+   
+           # Calculate relative strength and RSI
+           rs = avg_gains / (avg_losses + 1e-10)
+           rsi = 100.0 - (100.0 / (1.0 + rs))
+           
+           return {
+               'rsi': rsi,
+               'buy_signals': (rsi < self.config.oversold).to(self.dtype),
+               'sell_signals': (rsi > self.config.overbought).to(self.dtype)
+           }
    ```
 
-2. **Multi-timeframe Integration**
+2. **Configuration**
    ```python
-   def multi_timeframe_rsi(data, timeframes=[14, 28, 56]):
-       signals = []
-       for tf in timeframes:
-           rsi = smooth_rsi(data, length=tf)
-           signals.append(rsi)
-       return np.mean(signals, axis=0)
+   @dataclass
+   class RSIConfig(TorchIndicatorConfig):
+       period: int = 14
+       overbought: float = 70.0
+       oversold: float = 30.0
    ```
 
 ### Signal Generation
-- **Strong Buy**: RSI < 30 with positive divergence
-- **Strong Sell**: RSI > 70 with negative divergence
+- **Strong Buy**: RSI < 30 (oversold condition)
+- **Strong Sell**: RSI > 70 (overbought condition)
 - **Neutral**: 30 ≤ RSI ≤ 70
+
+### Usage Example
+```python
+# Initialize indicator
+rsi = RSIIndicator(period=14, device="cuda" if torch.cuda.is_available() else "cpu")
+
+# Calculate signals
+results = rsi.calculate(price_data)
+
+# Access results
+rsi_values = results['rsi']
+buy_signals = results['buy_signals']
+sell_signals = results['sell_signals']
+```
 
 ## Custom CCI Implementation
 

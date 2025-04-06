@@ -1,3 +1,6 @@
+# Paths to ignore
+example-files/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

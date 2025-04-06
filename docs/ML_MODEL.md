@@ -4,11 +4,34 @@
 Our trading model uses PyTorch to implement a hybrid architecture combining traditional technical analysis with deep learning. This document explains the model's structure, training process, and deployment.
 
 ## Table of Contents
-1. [Model Architecture](#model-architecture)
-2. [Training Pipeline](#training-pipeline)
-3. [Feature Engineering](#feature-engineering)
-4. [Performance Optimization](#performance-optimization)
-5. [Deployment](#deployment)
+1. [Project Structure](#project-structure)
+2. [Model Architecture](#model-architecture)
+3. [Training Pipeline](#training-pipeline)
+4. [Feature Engineering](#feature-engineering)
+5. [Performance Optimization](#performance-optimization)
+6. [Deployment](#deployment)
+
+## Project Structure
+
+The project is organized into the following directory structure:
+
+```
+src/
+├── features/           # Core technical indicators
+│   ├── rsi.py          # Relative Strength Index
+│   ├── cci.py          # Commodity Channel Index
+│   ├── adx.py          # Average Directional Index
+│   └── wave_trend.py   # WaveTrend Oscillator
+├── indicators/         # Base indicator foundations
+│   └── base_torch_indicator.py  # PyTorch base indicator class
+├── models/
+│   ├── strategy/       # Trading strategies
+│   │   ├── lorentzian_classifier.py
+│   │   ├── logistic_regression_torch.py
+│   │   └── chandelier_exit.py
+│   └── training/       # Model training utilities
+└── pattern-recognition/ # Pattern detection algorithms
+```
 
 ## Model Architecture
 
@@ -169,24 +192,53 @@ def calculate_price_features(df):
     return features
 ```
 
-### 2. Technical Features
+### 2. GPU-Accelerated Technical Indicators
+
+We use PyTorch-based implementations of technical indicators for improved performance:
+
 ```python
-def calculate_technical_features(df):
-    features = {}
-    
-    # Add RSI
-    features['rsi'] = calculate_rsi(df['close'])
-    
-    # Add MACD
-    features['macd'], features['signal'] = calculate_macd(df['close'])
-    
-    # Add Bollinger Bands
-    features['bb_upper'], features['bb_lower'] = calculate_bollinger(df['close'])
-    
-    return features
+# Initialize RSI with GPU support
+rsi_indicator = RSIIndicator(
+    period=14,
+    overbought=70.0,
+    oversold=30.0,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    dtype=torch.float32
+)
+
+# Calculate RSI values and signals
+rsi_results = rsi_indicator.calculate(data)
+
+# Access RSI values and signals
+rsi_values = rsi_results['rsi']
+buy_signals = rsi_results['buy_signals']
+sell_signals = rsi_results['sell_signals']
 ```
 
-### 3. Feature Normalization
+### 3. Indicator Integration
+
+Our PyTorch indicators provide a unified interface:
+
+```python
+def create_feature_matrix(data):
+    # Initialize indicators
+    indicators = {
+        'rsi': RSIIndicator(period=14),
+        'cci': CCIIndicator(period=20),
+        'adx': ADXIndicator(period=14),
+        'wavetrend': WaveTrendIndicator(channel_length=10, average_length=21)
+    }
+    
+    # Calculate all indicator values
+    features = {}
+    for name, indicator in indicators.items():
+        results = indicator.calculate(data)
+        features.update({f"{name}_{k}": v for k, v in results.items()})
+    
+    return pd.DataFrame(features)
+```
+
+### 4. Feature Normalization
 ```python
 def normalize_features(features, scaler=None):
     if scaler is None:

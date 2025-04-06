@@ -66,8 +66,11 @@ Our trading bot now features full integration with Neon PostgreSQL for:
 ## 📝 Project Structure
 
 Key directories:
-- `src/models/` - Trading strategy models and ML architecture
-- `src/features/` - Technical analysis and indicators
+- `src/features/` - Core technical indicators (RSI, CCI, ADX, WaveTrend)
+- `src/indicators/` - Base indicator foundations
+- `src/models/strategy/` - Trading strategies (Lorentzian, Logistic Regression, Chandelier)
+- `src/models/training/` - Model training utilities
+- `src/pattern-recognition/` - Pattern detection algorithms
 - `src/data/` - Data collection and processing
 - `tests/` - Testing infrastructure
 - `docs/` - Detailed documentation
