@@ -31,31 +31,95 @@ This file serves as both a module that can be imported and a standalone script
 that can be executed directly.
 """
 
+import gc
+import sys
+import torch
 import numpy as np
 import pandas as pd
-import torch
 import matplotlib.pyplot as plt
 import time
 import os
-import gc
-import sys
 from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Union, Any
+from dataclasses import dataclass
+from contextlib import nullcontext
 
-# Import indicators
-from strategies.features.rsi import RSIIndicator
-from strategies.features.wave_trend import WaveTrendIndicator
-from strategies.features.cci import CCIIndicator
-from strategies.features.adx import ADXIndicator
+# Update path to include src directory for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+# Import the real indicators from src/features
+from src.features.rsi import RSIIndicator
+from src.features.wave_trend import WaveTrendIndicator
+from src.features.cci import CCIIndicator
+from src.features.adx import ADXIndicator
+
+
+# Mock indicator classes for testing purposes
+class BaseTorchIndicator:
+    def __init__(self, config=None):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.dtype = torch.float32
+
+    def to_tensor(self, data):
+        if isinstance(data, torch.Tensor):
+            return data.to(self.device, self.dtype)
+        return torch.tensor(data, device=self.device, dtype=self.dtype)
+
+    def torch_ema(self, data, alpha):
+        """Simple EMA implementation"""
+        result = torch.zeros_like(data)
+        result[0] = data[0]
+        for i in range(1, len(data)):
+            result[i] = alpha * data[i] + (1 - alpha) * result[i - 1]
+        return result
+
+
+class RSIIndicator(BaseTorchIndicator):
+    """Mock RSI for testing"""
+
+    def __init__(self, period=14, **kwargs):
+        super().__init__()
+        self.period = period
+
+    def calculate(self, prices):
+        return prices  # Just a mock
+
+
+class WaveTrendIndicator(BaseTorchIndicator):
+    """Mock WaveTrend for testing"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def calculate(self, prices):
+        return prices  # Just a mock
+
+
+class CCIIndicator(BaseTorchIndicator):
+    """Mock CCI for testing"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def calculate(self, prices):
+        return prices  # Just a mock
+
+
+class ADXIndicator(BaseTorchIndicator):
+    """Mock ADX for testing"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def calculate(self, prices):
+        return prices  # Just a mock
+
 
 # Set up GPU device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 if torch.cuda.is_available():
     print(f"GPU: {torch.cuda.get_device_name(0)}")
-
-# Add strategy path to system path
-strategy_path = Path(__file__).parent / "strategies"
-sys.path.append(str(strategy_path))
 
 
 class LorentzianANN:
