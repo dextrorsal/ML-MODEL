@@ -76,6 +76,13 @@ Dive deeper into the project with our comprehensive documentation:
 - [🛠️ Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [📈 Model Training Guide](docs/MODEL_TRAINING.md) - How to train and evaluate ML models
 
+### Additional Documentation
+- [Project Audit Summary](docs/PROJECT_AUDIT.md) — Full audit and cleanup log of the codebase
+- [Trading Signal Generation Fix](docs/TRADING_SIGNALS_FIX.md) — Details on signal logic improvements and backtest results
+- [Dashboard Usage Guide](docs/RUN_DASHBOARD.md) — How to run and use the trading dashboard
+- [Next Steps & Workflow](docs/NEXT_STEPS.md) — Suggestions for future work and project direction
+- [Combined Model Summary](docs/COMBINED_MODEL_SUMMARY.md) — Overview of the combined model approach
+
 ---
 
 ## 📝 Project Structure
