@@ -1,5 +1,10 @@
 # 🧠 Machine Learning Model Architecture
 
+*What is this doc?*  
+This guide explains the structure, training, and deployment of the project's main ML model. It's for anyone wanting to understand, extend, or use the model—whether you're a developer, researcher, or curious trader.
+
+[Project Structure](../README.md#project-structure) | [Indicators](INDICATORS.md) | [Technical Strategy](TECHNICAL_STRATEGY.md) | [Model Training](MODEL_TRAINING.md)
+
 ## Overview
 Our trading model uses PyTorch to implement a hybrid architecture combining traditional technical analysis with deep learning. This document explains the model's structure, training process, and deployment.
 
@@ -346,3 +351,12 @@ async def process_realtime(model, data_stream):
 ---
 
 *This documentation provides a comprehensive overview of our machine learning model architecture. For implementation details or specific questions, please refer to the relevant sections or contact the development team.* 
+
+## See Also
+- [Project README](../README.md) — Project overview, directory map, and quick start
+- [Technical Indicators](INDICATORS.md) — Details on all custom indicators
+- [Technical Strategy](TECHNICAL_STRATEGY.md) — How the model fits into the trading system
+- [Model Training Guide](MODEL_TRAINING.md) — How to train and evaluate models
+- [Neon Data Pipeline](NEON_PIPELINE.md) — Data ingestion and feature engineering
+- [src/features/](../src/features/) — Core indicator code (e.g., [rsi.py](../src/features/rsi.py), [cci.py](../src/features/cci.py))
+- [src/models/strategy/](../src/models/strategy/) — Strategy/model code (e.g., [lorentzian_classifier.py](../src/models/strategy/lorentzian_classifier.py)) 

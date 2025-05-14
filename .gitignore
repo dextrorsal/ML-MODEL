@@ -234,7 +234,6 @@ positions/
 
 # Keep these files (add ! to track specific files)
 !data/README.md
-!data/pipeline/
 !requirements.txt
 !setup.py
 !README.md

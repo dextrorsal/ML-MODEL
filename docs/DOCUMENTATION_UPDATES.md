@@ -5,23 +5,23 @@
 We've made several improvements to the project documentation to reflect our work on the data collection system:
 
 ### 1. Updated Existing Documentation
-- **README.md**: 
+- **[README.md](../README.md)**: 
   - Added a Testing section highlighting our comprehensive testing infrastructure
-  - Added link to the Troubleshooting Guide in the Documentation section
+  - Added link to the [Troubleshooting Guide](TROUBLESHOOTING.md) in the Documentation section
   - Updated Completed Features to include data testing
 
-- **tests/data/README.md**:
+- **[tests/data/README.md](../tests/data/README.md)**:
   - Enhanced Troubleshooting section with specific WebSocket connection solutions
   - Added detailed instructions for addressing database permission errors
   - Included more specific API troubleshooting tips
 
-- **docs/NEON_PIPELINE.md**:
+- **[docs/NEON_PIPELINE.md](NEON_PIPELINE.md)**:
   - Added a new section on WebSocket Connection Management
   - Included detailed examples of ping/pong implementation for Binance WebSockets
   - Added reconnection logic examples with exponential backoff
 
 ### 2. New Documentation
-- **docs/TROUBLESHOOTING.md**:
+- **[docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md)**:
   - Created comprehensive troubleshooting guide covering:
     - Database issues and PostgreSQL permission errors
     - Binance API rate limiting and connection problems

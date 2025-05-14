@@ -8,22 +8,44 @@ Features:
 - Advanced signal filtering
 - Backtesting metrics
 - Debug capabilities
+
+See also:
+- docs/INDICATORS.md (Technical Indicators Documentation)
+- docs/ML_MODEL.md (ML Model Architecture)
 """
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from dataclasses import dataclass
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 from ..indicators.base_torch_indicator import BaseTorchIndicator, TorchIndicatorConfig
 from contextlib import nullcontext
 
 
 @dataclass
 class RsiMetrics:
-    """Container for RSI trading metrics"""
+    """
+    Container for RSI trading metrics.
+
+    Attributes
+    ----------
+    total_trades : int
+        Total number of trades executed.
+    winning_trades : int
+        Number of trades that resulted in a profit.
+    losing_trades : int
+        Number of trades that resulted in a loss.
+    win_rate : float
+        Proportion of winning trades (0-1).
+    avg_win : float
+        Average profit per winning trade.
+    avg_loss : float
+        Average loss per losing trade.
+    profit_factor : float
+        Ratio of gross profit to gross loss.
+    """
 
     total_trades: int = 0
     winning_trades: int = 0
@@ -36,7 +58,18 @@ class RsiMetrics:
 
 @dataclass
 class RSIConfig(TorchIndicatorConfig):
-    """Configuration for RSI indicator"""
+    """
+    Configuration for the RSI indicator.
+
+    Attributes
+    ----------
+    period : int
+        Number of periods to use for RSI calculation.
+    overbought : float
+        RSI value above which the asset is considered overbought.
+    oversold : float
+        RSI value below which the asset is considered oversold.
+    """
 
     period: int = 14
     overbought: float = 70.0
@@ -44,7 +77,28 @@ class RSIConfig(TorchIndicatorConfig):
 
 
 class RSIIndicator(BaseTorchIndicator):
-    """PyTorch-based RSI implementation"""
+    """
+    PyTorch-based RSI (Relative Strength Index) implementation.
+
+    This class provides a GPU-accelerated, modular RSI indicator with advanced signal
+    generation, filtering, and backtesting metrics. It is designed for integration
+    into ML-powered trading systems.
+
+    Parameters
+    ----------
+    period : int, optional
+        Number of periods for RSI calculation (default: 14).
+    overbought : float, optional
+        RSI value above which the asset is considered overbought (default: 70.0).
+    oversold : float, optional
+        RSI value below which the asset is considered oversold (default: 30.0).
+    device : torch.device, optional
+        Device to run calculations on (e.g., 'cuda' or 'cpu').
+    dtype : torch.dtype, optional
+        Data type for tensors.
+    config : RSIConfig, optional
+        Predefined configuration object.
+    """
 
     def __init__(
         self,
@@ -55,7 +109,24 @@ class RSIIndicator(BaseTorchIndicator):
         dtype: Optional[torch.dtype] = None,
         config: Optional[RSIConfig] = None,
     ):
-        """Initialize RSI indicator with PyTorch backend"""
+        """
+        Initialize the RSI indicator with PyTorch backend and configuration.
+
+        Parameters
+        ----------
+        period : int
+            Number of periods for RSI calculation.
+        overbought : float
+            RSI value above which the asset is considered overbought.
+        oversold : float
+            RSI value below which the asset is considered oversold.
+        device : torch.device, optional
+            Device to run calculations on (e.g., 'cuda' or 'cpu').
+        dtype : torch.dtype, optional
+            Data type for tensors.
+        config : RSIConfig, optional
+            Predefined configuration object.
+        """
         if config is None:
             config = RSIConfig(
                 period=period,
@@ -87,13 +158,20 @@ class RSIIndicator(BaseTorchIndicator):
 
     def forward(self, close: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        Calculate RSI values using PyTorch operations
+        Calculate RSI values and trading signals using PyTorch operations.
 
-        Args:
-            close: Close prices tensor
+        Parameters
+        ----------
+        close : torch.Tensor
+            1D tensor of close prices (shape: [N], device: self.device).
 
-        Returns:
-            Dictionary with RSI values and signals
+        Returns
+        -------
+        dict
+            Dictionary with keys:
+                - 'rsi': torch.Tensor of RSI values (shape: [N])
+                - 'buy_signals': torch.Tensor of buy signals (0 or 1, shape: [N])
+                - 'sell_signals': torch.Tensor of sell signals (0 or 1, shape: [N])
         """
         # Calculate price changes
         price_diff = torch.diff(close, dim=0)
@@ -132,13 +210,20 @@ class RSIIndicator(BaseTorchIndicator):
 
     def calculate_signals(self, data: pd.DataFrame) -> Dict[str, torch.Tensor]:
         """
-        Calculate RSI and generate trading signals
+        Calculate RSI and generate trading signals from OHLCV DataFrame.
 
-        Args:
-            data: DataFrame with OHLCV data
+        Parameters
+        ----------
+        data : pd.DataFrame
+            DataFrame with at least a 'close' column (and optionally others).
 
-        Returns:
-            Dictionary with RSI values and signals
+        Returns
+        -------
+        dict
+            Dictionary with keys:
+                - 'rsi': torch.Tensor of RSI values
+                - 'buy_signals': torch.Tensor of buy signals
+                - 'sell_signals': torch.Tensor of sell signals
         """
         # Convert price data to tensor
         close_prices = self.to_tensor(data["close"])
@@ -152,7 +237,18 @@ class RSIIndicator(BaseTorchIndicator):
     def update_metrics(
         self, current_price: float, signal: int, last_signal: int
     ) -> None:
-        """Update trading metrics"""
+        """
+        Update trading metrics after a trade signal change.
+
+        Parameters
+        ----------
+        current_price : float
+            The current price of the asset.
+        signal : int
+            The current trading signal (1 for long, -1 for short, 0 for neutral).
+        last_signal : int
+            The previous trading signal.
+        """
         if last_signal != 0 and signal != last_signal:
             self.metrics.total_trades += 1
             pnl = (current_price - self.last_price) * last_signal
@@ -181,7 +277,16 @@ class RSIIndicator(BaseTorchIndicator):
         self.last_price = current_price
 
     def plot_signals(self, df: pd.DataFrame, signals: Dict[str, pd.Series]) -> None:
-        """Plot RSI with signals using matplotlib"""
+        """
+        Plot price and RSI signals using matplotlib.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame containing price data (must include 'close').
+        signals : dict
+            Dictionary with keys 'rsi', 'buy_signals', 'sell_signals' as pd.Series or arrays.
+        """
         try:
             import matplotlib.pyplot as plt
 
@@ -226,7 +331,14 @@ class RSIIndicator(BaseTorchIndicator):
             print(f"Error plotting signals: {str(e)}")
 
     def get_metrics(self) -> Dict:
-        """Get current trading metrics"""
+        """
+        Get current trading metrics as a dictionary.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys: 'total_trades', 'win_rate', 'profit_factor', 'avg_win', 'avg_loss'.
+        """
         return {
             "total_trades": self.metrics.total_trades,
             "win_rate": self.metrics.win_rate,

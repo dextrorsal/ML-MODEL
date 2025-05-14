@@ -1,5 +1,10 @@
 # 🔬 Technical Trading Strategy Implementation
 
+*What is this doc?*  
+This document explains how the trading strategy works, how signals are generated, and how risk is managed. It's for anyone who wants to understand or modify the system's decision-making logic.
+
+[Indicators](INDICATORS.md) | [ML Model](ML_MODEL.md) | [Project README](../README.md)
+
 ## Table of Contents
 1. [Strategy Overview](#strategy-overview)
 2. [Core Components](#core-components)
@@ -294,5 +299,13 @@ risk:
 ```
 
 ---
+
+## See Also
+- [Project README](../README.md) — Project overview and structure
+- [ML Model Architecture](ML_MODEL.md) — How the model integrates with the strategy
+- [Technical Indicators](INDICATORS.md) — Details on all custom indicators
+- [Trading Philosophy](TRADING_PHILOSOPHY.md) — The intuition behind the strategy
+- [src/models/strategy/](../src/models/strategy/) — Strategy code (e.g., [lorentzian_classifier.py](../src/models/strategy/lorentzian_classifier.py), [logistic_regression_torch.py](../src/models/strategy/logistic_regression_torch.py))
+- [src/features/](../src/features/) — Indicator code
 
 *This document provides the technical implementation details of our trading strategy. It serves as a reference for development and maintenance of the trading system.* 

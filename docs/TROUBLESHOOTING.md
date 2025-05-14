@@ -1,6 +1,9 @@
 # 🛠️ Troubleshooting Guide
 
-This guide covers common issues you might encounter when running the ML-MODEL data collection system and their solutions.
+*What is this doc?*  
+This guide covers common issues and solutions for running the ML-MODEL system, including database, API, and data quality problems. It's for anyone running, debugging, or maintaining the system.
+
+[Neon Pipeline](NEON_PIPELINE.md) | [Model Training](MODEL_TRAINING.md) | [Project README](../README.md)
 
 ## Database Issues
 
@@ -172,3 +175,11 @@ Found a solution to a common problem? Please contribute to this guide by:
 1. Opening a pull request with your solution
 2. Adding detailed step-by-step instructions
 3. Including code examples where appropriate 
+
+## See Also
+- [Project README](../README.md) — Project overview and structure
+- [Neon Data Pipeline](NEON_PIPELINE.md) — Database and data flow details
+- [Model Training Guide](MODEL_TRAINING.md) — Training and evaluation troubleshooting
+- [src/data/pipeline/neon_collector.py](../src/data/pipeline/neon_collector.py) — Data collector code
+- [scripts/train_model.py](../scripts/train_model.py) — Training script
+- [scripts/dashboard/model_dashboard.py](../scripts/dashboard/model_dashboard.py) — Dashboard troubleshooting 

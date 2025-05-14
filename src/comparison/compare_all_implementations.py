@@ -1,39 +1,158 @@
 """
-Lorentzian Model Comparison Test
+Lorentzian Classification Model Comparison
 
-This script compares the performance of all four Lorentzian implementations:
-1. Your Implementation (src/models/strategy/lorentzian_classifier.py)
-2. Standalone Version (example-files/strategies/LorentzianStrategy/lorentzian_classifier.py)
-3. Analysis Version (example-files/analyze_lorentzian_ann.py)
-4. Modern PyTorch Version (example-files/strategies/LorentzianStrategy/models/primary/lorentzian_classifier.py)
+This script compares different implementations of the Lorentzian Classifier:
+1. Your implementation (src variant)
+2. Standalone implementation (most similar to TradingView)
+3. Analysis implementation (optimized clean version)
+4. Modern implementation (PyTorch optimized version)
 
-Each model will be tested on the same dataset with the same metrics for fair comparison.
+It evaluates each model on historical data and compares:
+- Speed (fitting and prediction time)
+- Accuracy (classification metrics)
+- Signal quality (trading metrics)
+- Memory usage
+
+Results are visualized in comparative charts and saved to CSV.
 """
 
-import sys
-import os
-
-# Add paths for easier imports
-sys.path.append(".")
-sys.path.append("..")
-sys.path.append("../..")
-
-import pandas as pd
 import numpy as np
-import torch
-import ccxt
-import time
-import argparse
-import json
+import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import torch
+import time
+import ccxt
+import logging
+import os
+import sys
+import json
 from pathlib import Path
+from typing import Dict, List, Tuple, Union, Optional, Any
+from datetime import datetime, timedelta
+import argparse
+import re
+from tqdm import tqdm
+import concurrent.futures
 
-# Import implementations with relative paths
-from your_implementation import LorentzianANN as YourImplementation
-from standalone_implementation import LorentzianANN as StandaloneLorentzian
-from analysis_implementation import LorentzianANN as AnalysisLorentzian
-from modern_pytorch_implementation import ModernLorentzian
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Add parent directory to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# Import model implementations
+try:
+    from your_implementation import LorentzianANN as YourImplementation
+
+    print("Your implementation loaded successfully")
+except ImportError:
+    print("Your implementation not found, using placeholder")
+    YourImplementation = None
+
+try:
+    from standalone_implementation import LorentzianANN as StandaloneImplementation
+
+    print("Standalone implementation loaded successfully")
+except ImportError:
+    print("Standalone implementation not found, using placeholder")
+    StandaloneImplementation = None
+
+try:
+    from analysis_implementation import LorentzianANN as AnalysisImplementation
+
+    print("Analysis implementation loaded successfully")
+except ImportError:
+    print("Analysis implementation not found, using placeholder")
+    AnalysisImplementation = None
+
+try:
+    from modern_pytorch_implementation import ModernLorentzian as ModernImplementation
+
+    print("Modern implementation loaded successfully")
+except ImportError:
+    print("Modern implementation not found, using placeholder")
+    ModernImplementation = None
+
+try:
+    from your_logistic_regression import LogisticRegression as YourLogisticRegression
+
+    print("Your logistic regression loaded successfully")
+except ImportError:
+    print("Your logistic regression not found, using placeholder")
+    YourLogisticRegression = None
+
+try:
+    from example_logistic_regression import (
+        LogisticRegressionTorch as ExampleLogisticRegression,
+    )
+
+    print("Example logistic regression loaded successfully")
+except ImportError:
+    print("Example logistic regression not found, using placeholder")
+    ExampleLogisticRegression = None
+
+try:
+    from your_chandelier_exit import ChandelierExit as YourChandelierExit
+
+    print("Your chandelier exit loaded successfully")
+except ImportError:
+    print("Your chandelier exit not found, using placeholder")
+    YourChandelierExit = None
+
+try:
+    from example_chandelier_exit import ChandelierExitIndicator as ExampleChandelierExit
+
+    print("Example chandelier exit loaded successfully")
+except ImportError:
+    print("Example chandelier exit not found, using placeholder")
+    ExampleChandelierExit = None
+
+try:
+    from data_fetcher import DataFetcher, fetch_historical_data
+
+    print("Data fetcher loaded successfully")
+except ImportError:
+    print("Data fetcher not found, will use basic implementation")
+    DataFetcher = None
+    fetch_historical_data = None
+
+# Import configuration
+try:
+    from comparison_config import (
+        MarketType,
+        OrderType,
+        default_config,
+        ComparisonConfig,
+        ExchangeConfig,
+        MarketConfig,
+    )
+
+    print("Comparison config loaded successfully")
+except ImportError:
+    print("Comparison config not found, will use basic implementation")
+
+    # Define basic versions of the required classes
+    class MarketType:
+        SPOT = "spot"
+        FUTURES = "futures"
+
+    class OrderType:
+        MARKET = "market"
+        LIMIT = "limit"
+
+    class ExchangeConfig:
+        pass
+
+    class MarketConfig:
+        pass
+
+    class ComparisonConfig:
+        pass
+
+    default_config = {}
 
 # ==========================================
 # CONFIGURATION SECTION
@@ -202,42 +321,46 @@ def fetch_training_data(config):
     )
 
     try:
-        # Initialize exchange
-        if config["exchange"].lower() == "bitget":
-            exchange_class = ccxt.bitget
-        else:
-            exchange_class = ccxt.binance
-
-        # Configure exchange options
-        exchange_options = {
-            "enableRateLimit": True,  # respect API rate limits
-        }
-
-        # For futures trading
-        if config["market_type"].lower() == "futures":
-            if config["exchange"].lower() == "bitget":
-                exchange_options["options"] = {
-                    "defaultType": "swap",  # USDT-M futures on Bitget
-                }
-            else:
-                exchange_options["options"] = {
-                    "defaultType": "future",  # USDT-M futures on Binance
-                }
-
-        # Initialize exchange
-        exchange = exchange_class(exchange_options)
-
-        # Fetch OHLCV data
-        ohlcv = exchange.fetch_ohlcv(
-            config["symbol"], config["timeframe"], limit=config["data_limit"]
+        # Convert the config dict to a ComparisonConfig object format
+        # Create exchange config
+        exchange_config = ExchangeConfig(
+            name=config["exchange"],
+            api_key="",
+            api_secret="",
+            rate_limit=True,
+            timeout=30000,
+            testnet=False,
         )
 
-        # Convert to DataFrame
-    df = pd.DataFrame(
-        ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"]
-    )
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-        df.set_index("timestamp", inplace=True)
+        # Determine market type
+        market_type = (
+            MarketType.FUTURES
+            if config["market_type"].lower() == "futures"
+            else MarketType.SPOT
+        )
+
+        # Create market config
+        market_config = MarketConfig(
+            symbol=config["symbol"],
+            market_type=market_type,
+            timeframe=config["timeframe"],
+            leverage=config.get("leverage", 1),
+            candle_limit=config["data_limit"],
+        )
+
+        # Create comparison config
+        comparison_config = ComparisonConfig(
+            exchange=exchange_config,
+            market=market_config,
+            use_cached_data=True,
+            data_cache_dir="./data_cache",
+        )
+
+        # Create data fetcher
+        data_fetcher = DataFetcher(comparison_config)
+
+        # Fetch data
+        df = data_fetcher.fetch_data()
 
         print(f"Successfully fetched data with shape: {df.shape}")
         return df
@@ -383,7 +506,9 @@ def test_modern_lorentzian(features, prices):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Create model and move to GPU
-    model = ModernLorentzian(input_size=input_size, hidden_size=hidden_size).to(device)
+    model = ModernImplementation(input_size=input_size, hidden_size=hidden_size).to(
+        device
+    )
 
     # Prepare training data and move to GPU
     X = torch.FloatTensor(features).to(device)
@@ -416,7 +541,9 @@ def test_standalone_lorentzian(features, prices):
     start_time = time.time()
 
     # Initialize model
-    model = StandaloneLorentzian(lookback_bars=50, prediction_bars=4, k_neighbors=20)
+    model = StandaloneImplementation(
+        lookback_bars=50, prediction_bars=4, k_neighbors=20
+    )
 
     # Convert inputs to GPU tensors if available
     if torch.cuda.is_available():
@@ -443,7 +570,7 @@ def test_analysis_lorentzian(features, prices):
     start_time = time.time()
 
     # Initialize model
-    model = AnalysisLorentzian(lookback_bars=50, prediction_bars=4, k_neighbors=20)
+    model = AnalysisImplementation(lookback_bars=50, prediction_bars=4, k_neighbors=20)
 
     # Convert inputs to GPU tensors if available
     if torch.cuda.is_available():
@@ -760,11 +887,11 @@ def calculate_metrics(predictions, prices, config):
     # Calculate Sharpe ratio if we have balance history
     if len(balance_history) > 1:
         daily_returns = np.diff(balance_history) / balance_history[:-1]
-    sharpe_ratio = (
+        sharpe_ratio = (
             (np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252))
             if np.std(daily_returns) != 0
-        else 0
-    )
+            else 0
+        )
     else:
         sharpe_ratio = 0
 
@@ -878,6 +1005,19 @@ def display_trade_statistics(metrics, name):
     print(f"{'=' * 50}")
 
 
+# Default model parameters for testing
+model_params = {
+    "your_implementation": {
+        "lookback_bars": 50,
+        "prediction_bars": 4,
+        "k_neighbors": 20,
+    },
+    "standalone": {"lookback_bars": 50, "prediction_bars": 4, "k_neighbors": 20},
+    "analysis": {"lookback_bars": 50, "prediction_bars": 4, "k_neighbors": 20},
+    "modern": {"input_size": 10, "hidden_size": 64},  # Updated for ModernLorentzian
+}
+
+
 def main():
     # Parse command-line arguments
     config = parse_args()
@@ -889,23 +1029,51 @@ def main():
     df = fetch_training_data(config)
     features, prices = prepare_features(df)
 
+    # Initialize models with your specific parameters
+    models = {
+        "Your Implementation": YourImplementation(
+            **model_params["your_implementation"]
+        ),
+        "Standalone": StandaloneImplementation(**model_params["standalone"]),
+        "Analysis": AnalysisImplementation(**model_params["analysis"]),
+        "Modern PyTorch": ModernImplementation(**model_params["modern"]),
+    }
+
+    # Add logistic regression models if requested
+    if config.get("compare_logistic_regression", False):
+        models.update(
+            {
+                "Your Logistic Regression": YourLogisticRegression(),
+                "Example Logistic Regression": ExampleLogisticRegression(),
+            }
+        )
+
+    # Add chandelier exit models if requested
+    if config.get("compare_chandelier_exit", False):
+        models.update(
+            {
+                "Your Chandelier Exit": YourChandelierExit(),
+                "Example Chandelier Exit": ExampleChandelierExit(),
+            }
+        )
+
     # Test each implementation
-    your_predictions = test_your_implementation(features, prices)
-    modern_predictions = test_modern_lorentzian(features, prices)
-    standalone_predictions = test_standalone_lorentzian(features, prices)
-    analysis_predictions = test_analysis_lorentzian(features, prices)
+    predictions = {}
+    for name, model in models.items():
+        print(f"\nTesting {name}...")
+        start_time = time.time()
+        predictions[name] = model.predict(features)
+        end_time = time.time()
+        print(f"{name} completed in {end_time - start_time:.2f} seconds")
 
     # Calculate metrics with portfolio settings
-    your_metrics = calculate_metrics(your_predictions, prices, config)
-    modern_metrics = calculate_metrics(modern_predictions, prices, config)
-    standalone_metrics = calculate_metrics(standalone_predictions, prices, config)
-    analysis_metrics = calculate_metrics(analysis_predictions, prices, config)
+    metrics = {}
+    for name, preds in predictions.items():
+        metrics[name] = calculate_metrics(preds, prices, config)
 
     # Print stats for each prediction set
-    print_prediction_stats("Your Implementation", your_predictions)
-    print_prediction_stats("Modern PyTorch", modern_predictions)
-    print_prediction_stats("Standalone", standalone_predictions)
-    print_prediction_stats("Analysis", analysis_predictions)
+    for name, preds in predictions.items():
+        print_prediction_stats(name, preds)
 
     # Get output directory
     output_dir = config.get("output_dir", "results")
@@ -927,77 +1095,31 @@ def main():
                 "Final Balance",
                 "Total Fees Paid",
             ],
-            "Your Implementation": [
-                your_metrics["win_rate"],
-                your_metrics["total_return_pct"],
-                your_metrics["max_drawdown"],
-                your_metrics["sharpe_ratio"],
-                your_metrics["signal_activity"],
-                your_metrics["total_trades"],
-                len([t for t in your_metrics["trades"] if t["pnl"] > 0])
-                if your_metrics["trades"]
-                else 0,
-                len([t for t in your_metrics["trades"] if t["pnl"] < 0])
-                if your_metrics["trades"]
-                else 0,
-                calculate_profit_factor(your_metrics["trades"]),
-                your_metrics["initial_balance"],
-                your_metrics["final_balance"],
-                your_metrics["total_fee_paid"],
+            "Model": [name for name, _ in models.items()],
+            "Win Rate (%)": [metrics[name]["win_rate"] for name in models.keys()],
+            "Total Return (%)": [
+                metrics[name]["total_return_pct"] for name in models.keys()
             ],
-            "Modern PyTorch": [
-                modern_metrics["win_rate"],
-                modern_metrics["total_return_pct"],
-                modern_metrics["max_drawdown"],
-                modern_metrics["sharpe_ratio"],
-                modern_metrics["signal_activity"],
-                modern_metrics["total_trades"],
-                len([t for t in modern_metrics["trades"] if t["pnl"] > 0])
-                if modern_metrics["trades"]
-                else 0,
-                len([t for t in modern_metrics["trades"] if t["pnl"] < 0])
-                if modern_metrics["trades"]
-                else 0,
-                calculate_profit_factor(modern_metrics["trades"]),
-                modern_metrics["initial_balance"],
-                modern_metrics["final_balance"],
-                modern_metrics["total_fee_paid"],
+            "Max Drawdown (%)": [
+                metrics[name]["max_drawdown"] for name in models.keys()
             ],
-            "Standalone": [
-                standalone_metrics["win_rate"],
-                standalone_metrics["total_return_pct"],
-                standalone_metrics["max_drawdown"],
-                standalone_metrics["sharpe_ratio"],
-                standalone_metrics["signal_activity"],
-                standalone_metrics["total_trades"],
-                len([t for t in standalone_metrics["trades"] if t["pnl"] > 0])
-                if standalone_metrics["trades"]
-                else 0,
-                len([t for t in standalone_metrics["trades"] if t["pnl"] < 0])
-                if standalone_metrics["trades"]
-                else 0,
-                calculate_profit_factor(standalone_metrics["trades"]),
-                standalone_metrics["initial_balance"],
-                standalone_metrics["final_balance"],
-                standalone_metrics["total_fee_paid"],
+            "Sharpe Ratio": [metrics[name]["sharpe_ratio"] for name in models.keys()],
+            "Signal Activity (%)": [
+                metrics[name]["signal_activity"] for name in models.keys()
             ],
-            "Analysis": [
-                analysis_metrics["win_rate"],
-                analysis_metrics["total_return_pct"],
-                analysis_metrics["max_drawdown"],
-                analysis_metrics["sharpe_ratio"],
-                analysis_metrics["signal_activity"],
-                analysis_metrics["total_trades"],
-                len([t for t in analysis_metrics["trades"] if t["pnl"] > 0])
-                if analysis_metrics["trades"]
-                else 0,
-                len([t for t in analysis_metrics["trades"] if t["pnl"] < 0])
-                if analysis_metrics["trades"]
-                else 0,
-                calculate_profit_factor(analysis_metrics["trades"]),
-                analysis_metrics["initial_balance"],
-                analysis_metrics["final_balance"],
-                analysis_metrics["total_fee_paid"],
+            "Total Trades": [metrics[name]["total_trades"] for name in models.keys()],
+            "Winning Trades": [metrics[name]["buy_signals"] for name in models.keys()],
+            "Losing Trades": [metrics[name]["sell_signals"] for name in models.keys()],
+            "Profit Factor": [
+                calculate_profit_factor(metrics[name]["trades"])
+                for name in models.keys()
+            ],
+            "Starting Balance": [
+                metrics[name]["initial_balance"] for name in models.keys()
+            ],
+            "Final Balance": [metrics[name]["final_balance"] for name in models.keys()],
+            "Total Fees Paid": [
+                metrics[name]["total_fee_paid"] for name in models.keys()
             ],
         }
     )
@@ -1015,92 +1137,54 @@ def main():
     print("TRADITIONAL MODEL EVALUATION METRICS")
     print("=" * 80)
 
-    print("\nYour Implementation Trading Metrics:")
-    print(f"Win Rate: {your_metrics['win_rate']:.2f}%")
-    print(f"Total Trades: {your_metrics['total_trades']}")
-    print("Signal Distribution:")
-    print(f"  - Buy Signals: {your_metrics['buy_signals']}")
-    print(f"  - Sell Signals: {your_metrics['sell_signals']}")
-    print(f"  - Hold Signals: {your_metrics['hold_signals']}")
-    print(f"Signal Activity: {your_metrics['signal_activity']:.2f}%")
-    print(f"Total Return: {your_metrics['total_return_pct']:.2f}%")
-    print(f"Max Drawdown: {your_metrics['max_drawdown']:.2f}%")
-    print(
-        f"Avg Profit per Trade: ${your_metrics['avg_profit']:.2f} ({your_metrics['avg_profit_pct']:.2f}%)"
-    )
-    print(f"Sharpe Ratio: {your_metrics['sharpe_ratio']:.4f}\n")
-
-    print("Modern Trading Metrics:")
-    print(f"Win Rate: {modern_metrics['win_rate']:.2f}%")
-    print(f"Total Trades: {modern_metrics['total_trades']}")
-    print("Signal Distribution:")
-    print(f"  - Buy Signals: {modern_metrics['buy_signals']}")
-    print(f"  - Sell Signals: {modern_metrics['sell_signals']}")
-    print(f"  - Hold Signals: {modern_metrics['hold_signals']}")
-    print(f"Signal Activity: {modern_metrics['signal_activity']:.2f}%")
-    print(f"Total Return: {modern_metrics['total_return_pct']:.2f}%")
-    print(f"Max Drawdown: {modern_metrics['max_drawdown']:.2f}%")
-    print(
-        f"Avg Profit per Trade: ${modern_metrics['avg_profit']:.2f} ({modern_metrics['avg_profit_pct']:.2f}%)"
-    )
-    print(f"Sharpe Ratio: {modern_metrics['sharpe_ratio']:.4f}\n")
-
-    print("Standalone Trading Metrics:")
-    print(f"Win Rate: {standalone_metrics['win_rate']:.2f}%")
-    print(f"Total Trades: {standalone_metrics['total_trades']}")
-    print("Signal Distribution:")
-    print(f"  - Buy Signals: {standalone_metrics['buy_signals']}")
-    print(f"  - Sell Signals: {standalone_metrics['sell_signals']}")
-    print(f"  - Hold Signals: {standalone_metrics['hold_signals']}")
-    print(f"Signal Activity: {standalone_metrics['signal_activity']:.2f}%")
-    print(f"Total Return: {standalone_metrics['total_return_pct']:.2f}%")
-    print(f"Max Drawdown: {standalone_metrics['max_drawdown']:.2f}%")
-    print(
-        f"Avg Profit per Trade: ${standalone_metrics['avg_profit']:.2f} ({standalone_metrics['avg_profit_pct']:.2f}%)"
-    )
-    print(f"Sharpe Ratio: {standalone_metrics['sharpe_ratio']:.4f}\n")
-
-    print("Analysis Trading Metrics:")
-    print(f"Win Rate: {analysis_metrics['win_rate']:.2f}%")
-    print(f"Total Trades: {analysis_metrics['total_trades']}")
-    print("Signal Distribution:")
-    print(f"  - Buy Signals: {analysis_metrics['buy_signals']}")
-    print(f"  - Sell Signals: {analysis_metrics['sell_signals']}")
-    print(f"  - Hold Signals: {analysis_metrics['hold_signals']}")
-    print(f"Signal Activity: {analysis_metrics['signal_activity']:.2f}%")
-    print(f"Total Return: {analysis_metrics['total_return_pct']:.2f}%")
-    print(f"Max Drawdown: {analysis_metrics['max_drawdown']:.2f}%")
-    print(
-        f"Avg Profit per Trade: ${analysis_metrics['avg_profit']:.2f} ({analysis_metrics['avg_profit_pct']:.2f}%)"
-    )
-    print(f"Sharpe Ratio: {analysis_metrics['sharpe_ratio']:.4f}\n")
+    for name, metric in metrics.items():
+        print(f"\n{name} Trading Metrics:")
+        print(f"Win Rate: {metric['win_rate']:.2f}%")
+        print(f"Total Trades: {metric['total_trades']}")
+        print("Signal Distribution:")
+        print(f"  - Buy Signals: {metric['buy_signals']}")
+        print(f"  - Sell Signals: {metric['sell_signals']}")
+        print(f"  - Hold Signals: {metric['hold_signals']}")
+        print(f"Signal Activity: {metric['signal_activity']:.2f}%")
+        print(f"Total Return: {metric['total_return_pct']:.2f}%")
+        print(f"Max Drawdown: {metric['max_drawdown']:.2f}%")
+        print(
+            f"Avg Profit per Trade: ${metric['avg_profit']:.2f} ({metric['avg_profit_pct']:.2f}%)"
+        )
+        print(f"Sharpe Ratio: {metric['sharpe_ratio']:.4f}\n")
 
     # Print detailed paper trading statistics
     print("\n" + "=" * 80)
     print("PAPER TRADING SIMULATION RESULTS")
     print("=" * 80)
 
-    display_trade_statistics(your_metrics, "Your Implementation")
-    display_trade_statistics(modern_metrics, "Modern PyTorch")
-    display_trade_statistics(standalone_metrics, "Standalone")
-    display_trade_statistics(analysis_metrics, "Analysis")
+    for name, metric in metrics.items():
+        display_trade_statistics(metric, name)
 
     # Plot metrics and comparison
     plot_metrics(
-        your_metrics, modern_metrics, standalone_metrics, analysis_metrics, output_dir
+        metrics[list(metrics.keys())[0]],
+        metrics[list(metrics.keys())[1]],
+        metrics[list(metrics.keys())[2]],
+        metrics[list(metrics.keys())[3]],
+        output_dir,
     )
     plot_comparison(
         df,
-        your_predictions,
-        modern_predictions,
-        standalone_predictions,
-        analysis_predictions,
+        predictions[list(predictions.keys())[0]],
+        predictions[list(predictions.keys())[1]],
+        predictions[list(predictions.keys())[2]],
+        predictions[list(predictions.keys())[3]],
         output_dir,
     )
 
     # Plot equity curves
     plot_equity_curves(
-        your_metrics, modern_metrics, standalone_metrics, analysis_metrics, output_dir
+        metrics[list(metrics.keys())[0]],
+        metrics[list(metrics.keys())[1]],
+        metrics[list(metrics.keys())[2]],
+        metrics[list(metrics.keys())[3]],
+        output_dir,
     )
 
     print(

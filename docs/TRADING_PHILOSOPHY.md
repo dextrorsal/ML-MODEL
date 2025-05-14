@@ -1,5 +1,10 @@
 # 🎯 Trading Philosophy & Market Intuition
 
+*What is this doc?*  
+This document explains the intuition and discretionary trading style that inspired the system. It's for anyone interested in the 'why' behind the strategy, or in translating human intuition into code.
+
+[Technical Strategy](TECHNICAL_STRATEGY.md) | [Indicators](INDICATORS.md) | [Project README](../README.md)
+
 > "Trading is an art of reading price action and market psychology, developed through experience and intuition." - D3X7
 
 ## 👁️ Trading Style Overview
@@ -160,3 +165,9 @@ Low of Range
 ---
 
 *This document serves as a bridge between discretionary trading expertise and systematic implementation. It captures the essence of my trading style while providing a framework for conversion to automated systems.* 
+
+## See Also
+- [Project README](../README.md) — Project overview and structure
+- [Technical Strategy](TECHNICAL_STRATEGY.md) — How intuition is systematized
+- [Technical Indicators](INDICATORS.md) — Feature engineering for systematic trading
+- [ML Model Architecture](ML_MODEL.md) — How intuition translates to model features 

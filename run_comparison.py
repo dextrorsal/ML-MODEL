@@ -1,104 +1,175 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
-Run Lorentzian Model Evaluation
+Strategy Comparison Runner
 
-This script provides a simple way to run the advanced model evaluation
-with different configurations. It allows testing of different trading
-pairs, timeframes, and market types to compare the performance of
-different Lorentzian model implementations.
-
-Usage examples:
-- Basic evaluation with default settings:
-  python run_comparison.py
-
-- Compare models on Binance BTC futures market:
-  python run_comparison.py --config binance_btc_futures
-
-- Compare on Bitget SOL futures with custom initial balance:
-  python run_comparison.py --config bitget_sol_futures --balance 5000
-
-- Compare with custom symbol and timeframe:
-  python run_comparison.py --symbol ETH/USDT --timeframe 1h
+This script compares different trading strategies:
+1. Lorentzian Classifier
+2. Logistic Regression
+3. Chandelier Exit
 """
 
 import os
 import sys
-import asyncio
 import argparse
+import pandas as pd
+import numpy as np
+import torch
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the project root to the Python path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
 
-# Set environment variable to use virtual display for matplotlib
-os.environ["MPLBACKEND"] = "Agg"  # Use non-interactive backend
+# Also add src directory explicitly
+src_path = os.path.join(project_root, "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+print(f"Python path set to: {sys.path}")
 
 
-async def run_comparison(args):
-    """Run the comparison with the given arguments"""
+def main():
+    """Parse arguments and run the strategy comparison"""
+    parser = argparse.ArgumentParser(description="Run Strategy Comparison")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config_samples/quick_test_config.json",
+        help="Path to configuration JSON file",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="results/strategy_comparison",
+        help="Directory to save output files",
+    )
+
+    args, unknown = parser.parse_known_args()
+
+    # Print the configuration
+    print(f"Using config file: {args.config}")
+    print(f"Output directory: {args.output_dir}")
+
+    # Set up any additional environment variables or configurations here
+    os.environ["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
+
+    # Import strategies
     try:
-        # Import the main function from the evaluation script
-        from model_evaluation.compare_with_backtester import main
+        from src.models.strategy.lorentzian_classifier import LorentzianANN
+        from src.models.strategy.logistic_regression_torch import LogisticRegression
+        from src.models.strategy.chandelier_exit import ChandelierExit
 
-        # Override sys.argv with our arguments for the parser inside main()
-        original_argv = sys.argv.copy()
-        sys.argv = [sys.argv[0]]  # Keep the script name
+        print("Successfully imported all strategy implementations")
+    except ImportError as e:
+        print(f"Error importing strategies: {e}")
+        sys.exit(1)
 
-        # Add all args as command-line parameters
-        for arg_name, arg_value in vars(args).items():
-            if arg_value is not None:
-                if isinstance(arg_value, bool) and arg_value:
-                    sys.argv.append(f"--{arg_name}")
-                elif not isinstance(arg_value, bool):
-                    sys.argv.append(f"--{arg_name}")
-                    sys.argv.append(str(arg_value))
+    # Import data fetcher
+    try:
+        from src.comparison.data_fetcher import DataFetcher
 
-        # Run the main function
-        await main()
+        print("Successfully imported data fetcher")
+    except ImportError as e:
+        print(f"Error importing data fetcher: {e}")
+        sys.exit(1)
 
-        # Restore original argv
-        sys.argv = original_argv
+    # Run the comparison
+    try:
+        # Initialize strategies
+        lorentzian = LorentzianANN(lookback_bars=20, prediction_bars=4, k_neighbors=20)
+        logistic = LogisticRegression()
+        chandelier = ChandelierExit()
 
-        return 0
+        # Create data fetcher and get data
+        data_fetcher = DataFetcher()
+        df = data_fetcher.fetch_data()
+        print(f"Fetched data shape: {df.shape}")
+
+        # Test each strategy
+        results = {}
+
+        print("\nTesting Lorentzian Classifier...")
+        lorentzian_signals = lorentzian.calculate_signals(df)
+        results["Lorentzian"] = calculate_metrics(df, lorentzian_signals)
+
+        print("\nTesting Logistic Regression...")
+        logistic_signals = logistic.calculate_signals(df)
+        results["Logistic"] = calculate_metrics(df, logistic_signals)
+
+        print("\nTesting Chandelier Exit...")
+        chandelier_signals = chandelier.calculate_signals(df)
+        results["Chandelier"] = calculate_metrics(df, chandelier_signals)
+
+        # Print comparison
+        print("\n=== Strategy Comparison ===")
+        for strategy, metrics in results.items():
+            print(f"\n{strategy} Results:")
+            print(f"Total Return: {metrics['total_return']:.2%}")
+            print(f"Win Rate: {metrics['win_rate']:.2%}")
+            print(f"Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
+            print(f"Max Drawdown: {metrics['max_drawdown']:.2%}")
+            print(f"Number of Trades: {metrics['total_trades']}")
+
+        # Save results
+        os.makedirs(args.output_dir, exist_ok=True)
+        pd.DataFrame(results).to_csv(f"{args.output_dir}/strategy_comparison.csv")
+        print(f"\nResults saved to {args.output_dir}/strategy_comparison.csv")
+
     except Exception as e:
-        print(f"Error running comparison: {str(e)}")
+        print(f"Error running comparison: {e}")
         import traceback
 
         traceback.print_exc()
-        return 1
+        sys.exit(1)
+
+
+def calculate_metrics(df, signals):
+    """Calculate performance metrics for a strategy"""
+    # Extract signals (assuming they're in the standard format)
+    if isinstance(signals, dict):
+        if "buy_signals" in signals and "sell_signals" in signals:
+            combined_signals = signals["buy_signals"] - signals["sell_signals"]
+        else:
+            combined_signals = signals.get("signal", signals.get("predictions", None))
+    else:
+        combined_signals = signals
+
+    # Convert to numpy if needed
+    if isinstance(combined_signals, torch.Tensor):
+        combined_signals = combined_signals.cpu().numpy()
+
+    # Calculate returns
+    price_returns = df["close"].pct_change().fillna(0)
+    strategy_returns = price_returns * combined_signals
+
+    # Calculate metrics
+    total_return = (1 + strategy_returns).prod() - 1
+    win_rate = (strategy_returns > 0).mean()
+    sharpe_ratio = strategy_returns.mean() / strategy_returns.std() * np.sqrt(252)
+
+    # Calculate drawdown
+    cum_returns = (1 + strategy_returns).cumprod()
+    rolling_max = cum_returns.expanding().max()
+    drawdowns = (cum_returns - rolling_max) / rolling_max
+    max_drawdown = drawdowns.min()
+
+    # Count trades (signal changes)
+    signal_changes = np.diff(combined_signals != 0)
+    total_trades = np.sum(signal_changes)
+
+    return {
+        "total_return": total_return,
+        "win_rate": win_rate,
+        "sharpe_ratio": sharpe_ratio,
+        "max_drawdown": max_drawdown,
+        "total_trades": total_trades,
+    }
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Lorentzian Model Evaluation")
-    parser.add_argument(
-        "--config",
-        default="default",
-        choices=["default", "binance_btc_futures", "bitget_sol_futures"],
-        help="Configuration preset to use",
-    )
-    parser.add_argument(
-        "--lookback",
-        type=int,
-        default=30,
-        help="Number of days of historical data to fetch",
-    )
-    parser.add_argument("--symbol", type=str, help="Symbol to test (e.g., SOL/USDT)")
-    parser.add_argument(
-        "--timeframe", type=str, help="Timeframe to test (e.g., 5m, 1h, 4h)"
-    )
-    parser.add_argument("--balance", type=float, help="Initial balance for backtest")
-    parser.add_argument(
-        "--show-plots", action="store_true", help="Show plots during backtest"
-    )
+    # Check for GPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if device.type == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    args = parser.parse_args()
-
-    # Pass arguments via environment variables
-    for arg_name, arg_value in vars(args).items():
-        if arg_value is not None:
-            os.environ[
-                f"LORENTZIAN_COMPARISON_{arg_name.upper().replace('-', '_')}"
-            ] = str(arg_value)
-
-    # Run the comparison
-    exit_code = asyncio.run(run_comparison(args))
-    sys.exit(exit_code)
+    main()

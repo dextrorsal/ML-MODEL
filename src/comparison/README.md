@@ -1,5 +1,10 @@
 # Lorentzian Model Comparison System
 
+*What is this doc?*  
+This guide explains how to use the Lorentzian model comparison tools. It's for anyone benchmarking, testing, or analyzing different model implementations.
+
+[ML Model Architecture](../../docs/ML_MODEL.md) | [Technical Strategy](../../docs/TECHNICAL_STRATEGY.md) | [Project README](../../README.md)
+
 This tool compares the performance of different Lorentzian classifier implementations using real or synthetic market data.
 
 ## Features
@@ -104,3 +109,11 @@ Examples:
    ```bash
    python compare_all_implementations.py --symbol BTC/USDT --leverage 5 --save_config my_btc_config.json
    ``` 
+
+## See Also
+- [Project README](../../README.md) — Project overview and structure
+- [ML Model Architecture](../../docs/ML_MODEL.md) — Model details and integration
+- [Technical Strategy](../../docs/TECHNICAL_STRATEGY.md) — How comparison fits into the workflow
+- [Model Training Guide](../../docs/MODEL_TRAINING.md) — How to train and evaluate models
+- [src/comparison/](./) — All comparison scripts and configs
+- [config_samples/](../../model-evaluation/config_samples/) — Sample configuration files 

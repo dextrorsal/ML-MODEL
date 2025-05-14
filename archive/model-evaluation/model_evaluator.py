@@ -395,7 +395,7 @@ class DataFetcher:
         if not self.config.data.use_cached_data:
             return None
 
-        cache_file = self._get_cache_filename()
+            cache_file = self._get_cache_filename()
 
         if self._is_cache_valid(cache_file):
             try:
@@ -404,7 +404,7 @@ class DataFetcher:
                 df.set_index("timestamp", inplace=True)
                 print(f"Loaded {len(df)} candles from cache: {cache_file}")
                 return df
-            except Exception as e:
+        except Exception as e:
                 print(f"Error loading from cache: {e}")
 
         return None
@@ -414,7 +414,7 @@ class DataFetcher:
         if not self.config.data.use_cached_data:
             return False
 
-        cache_file = self._get_cache_filename()
+                cache_file = self._get_cache_filename()
 
         try:
             # Save with timestamp as a column
@@ -448,13 +448,13 @@ class DataFetcher:
         except Exception as e:
             print(f"Error initializing exchange: {e}")
             print("Will use synthetic data instead")
-            return None
+                return None
 
     def fetch_data(self) -> pd.DataFrame:
         """Fetch historical data based on configuration"""
         # Try to load from cache first
         cached_data = self._load_from_cache()
-        if cached_data is not None:
+                if cached_data is not None:
             return cached_data
 
         print(
@@ -484,34 +484,34 @@ class DataFetcher:
 
             while current_since < until:
                 print(
-                    f"Fetching chunk from {datetime.fromtimestamp(current_since/1000)}"
+                    f"Fetching chunk from {datetime.fromtimestamp(current_since / 1000)}"
                 )
                 candles = exchange.fetch_ohlcv(
                     self.config.data.symbol,
                     self.config.data.timeframe,
-                    since=current_since,
+                            since=current_since,
                     limit=1000,
-                )
+                        )
 
-                if not candles:
-                    break
+                    if not candles:
+                        break
 
-                all_candles.extend(candles)
+                    all_candles.extend(candles)
 
-                # Update since for next iteration
-                current_since = candles[-1][0] + 1
+                    # Update since for next iteration
+                    current_since = candles[-1][0] + 1
 
                 # Safety check
                 if len(all_candles) > 50000:
                     break
 
             # Convert to DataFrame
-            df = pd.DataFrame(
-                all_candles,
-                columns=["timestamp", "open", "high", "low", "close", "volume"],
-            )
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-            df.set_index("timestamp", inplace=True)
+                df = pd.DataFrame(
+                    all_candles,
+                    columns=["timestamp", "open", "high", "low", "close", "volume"],
+                )
+                df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+                df.set_index("timestamp", inplace=True)
 
             # Filter by date range
             df = df[self.config.data.start_date : self.config.data.end_date]
@@ -521,7 +521,7 @@ class DataFetcher:
             # Save to cache
             self._save_to_cache(df)
 
-            return df
+                return df
 
         except Exception as e:
             print(f"Error fetching data: {e}")
@@ -1160,7 +1160,7 @@ class ModelEvaluator:
     def __init__(self, config):
         """Initialize with config"""
         self.config = config
-        self.results = {}
+            self.results = {}
 
         # Initialize verbose mode
         self.verbose = (
@@ -1390,31 +1390,31 @@ class ModelEvaluator:
     def compare_models(self, df=None, model_list=None):
         """Compare multiple models on the same data"""
         if df is None:
-            df = self.get_data()
+        df = self.get_data()
 
         if model_list is None:
             # Use default model list from config
-            model_list = self.config.models_to_compare
+        model_list = self.config.models_to_compare
 
             # Add logistic regression models if enabled
             if self.config.compare_logistic_regression:
-                model_list.extend(
-                    [
-                        "your_logistic_regression",
-                        "example_logistic_regression",
-                        "src_logistic_regression",
-                    ]
-                )
+            model_list.extend(
+                [
+                    "your_logistic_regression",
+                    "example_logistic_regression",
+                    "src_logistic_regression",
+                ]
+            )
 
             # Add chandelier exit models if enabled
             if self.config.compare_chandelier_exit:
-                model_list.extend(
-                    [
-                        "your_chandelier_exit",
-                        "example_chandelier_exit",
-                        "src_chandelier_exit",
-                    ]
-                )
+            model_list.extend(
+                [
+                    "your_chandelier_exit",
+                    "example_chandelier_exit",
+                    "src_chandelier_exit",
+                ]
+            )
 
         # Clear results for new comparison
         self.results = {}
@@ -1498,7 +1498,7 @@ class ModelEvaluator:
                 self.evaluate_model(model_name, df)
             except Exception as e:
                 print(f"Error evaluating {model_name}: {e}")
-                traceback.print_exc()
+                    traceback.print_exc()
                 continue
 
         # Compare model results
@@ -1506,19 +1506,19 @@ class ModelEvaluator:
             print("\nComparison Results:")
 
         comparison_table = []
-        for model_name, result in self.results.items():
-            stats = result.get("stats", {})
-            row = [model_name]
+            for model_name, result in self.results.items():
+                stats = result.get("stats", {})
+                row = [model_name]
 
-            # Key metrics
+                # Key metrics
             row.append(f"{stats.get('total_return', 0):.2f}%")
-            row.append(f"{stats.get('win_rate', 0):.2f}%")
-            row.append(f"{stats.get('profit_factor', 0):.2f}")
-            row.append(f"{stats.get('max_drawdown', 0):.2f}%")
-            row.append(f"{stats.get('sharpe_ratio', 0):.2f}")
-            row.append(f"{stats.get('total_trades', 0)}")
+                row.append(f"{stats.get('win_rate', 0):.2f}%")
+                row.append(f"{stats.get('profit_factor', 0):.2f}")
+                row.append(f"{stats.get('max_drawdown', 0):.2f}%")
+                row.append(f"{stats.get('sharpe_ratio', 0):.2f}")
+                row.append(f"{stats.get('total_trades', 0)}")
 
-            comparison_table.append(row)
+                comparison_table.append(row)
 
         # Check if comparison_table has values
         if comparison_table:
@@ -1774,7 +1774,7 @@ def main():
 
             # Save results
             evaluator.save_results(df)
-        else:
+            else:
             print("No comparison results available.")
     else:
         print(

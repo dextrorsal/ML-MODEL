@@ -27,7 +27,7 @@ python model_evaluator.py --config config_samples/default_config.json
 python model_evaluator.py --compare_logistic
 
 # Compare Chandelier Exit implementations
-python model_evaluator.py --compare_chandelier
+python model_evaluator.py -compare_chandelier-
 
 # Compare both types of implementations
 python model_evaluator.py --compare_logistic --compare_chandelier

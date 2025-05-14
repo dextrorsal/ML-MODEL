@@ -268,7 +268,7 @@ class LogisticRegression:
             df: DataFrame with OHLCV data
 
         Returns:
-            DataFrame with signals and predictions
+            Dictionary with signals and predictions
         """
         lookback = self.config.lookback
         lr = self.config.learning_rate
@@ -381,7 +381,33 @@ class LogisticRegression:
             }
         )
 
-        return result
+        # Convert to dictionary format with the expected keys
+        buy_signals = np.zeros(len(df), dtype=bool)
+        sell_signals = np.zeros(len(df), dtype=bool)
+
+        # Convert signal values to boolean arrays
+        buy_signals[signals == self.BUY] = True
+        sell_signals[signals == self.SELL] = True
+
+        # Convert numpy arrays to torch tensors to match expected format
+        return {
+            "buy_signals": torch.tensor(
+                buy_signals, device=self.device, dtype=torch.bool
+            ),
+            "sell_signals": torch.tensor(
+                sell_signals, device=self.device, dtype=torch.bool
+            ),
+            "predictions": torch.tensor(
+                predictions, device=self.device, dtype=self.dtype
+            ),
+            "long_signals": torch.tensor(
+                buy_signals, device=self.device, dtype=torch.bool
+            ),
+            "short_signals": torch.tensor(
+                sell_signals, device=self.device, dtype=torch.bool
+            ),
+            "dataframe": result,
+        }
 
     def update_metrics(self, current_price, signal, last_signal):
         """

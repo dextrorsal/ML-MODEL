@@ -1,5 +1,10 @@
 # 🔄 Neon Data Pipeline
 
+*What is this doc?*  
+This guide explains how the data pipeline collects, processes, and stores trading data using Neon PostgreSQL. It's for anyone working with data ingestion, feature engineering, or database integration.
+
+[ML Model](ML_MODEL.md) | [Model Training](MODEL_TRAINING.md) | [Troubleshooting](TROUBLESHOOTING.md) | [Project README](../README.md)
+
 ## Overview
 Our data pipeline integrates with Neon's PostgreSQL database to efficiently collect, process, and store cryptocurrency trading data. This document explains the pipeline architecture and usage.
 
@@ -266,3 +271,12 @@ def handle_pipeline_error(self, error):
 ---
 
 *This documentation provides a comprehensive overview of our Neon data pipeline implementation. For specific questions or issues, please refer to the relevant sections or contact the development team.* 
+
+## See Also
+- [Project README](../README.md) — Project overview and structure
+- [ML Model Architecture](ML_MODEL.md) — How data flows into the model
+- [Model Training Guide](MODEL_TRAINING.md) — Using the pipeline for training
+- [Troubleshooting Guide](TROUBLESHOOTING.md) — Database and connection issues
+- [src/data/pipeline/neon_collector.py](../src/data/pipeline/neon_collector.py) — Main data collector code
+- [src/data/processors/](../src/data/processors/) — Data processing code
+- [src/features/](../src/features/) — Feature engineering code 

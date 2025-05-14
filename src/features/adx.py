@@ -150,6 +150,7 @@ class ADXIndicator(BaseTorchIndicator):
 
         return {
             "adx": adx,
+            "ADX": adx,
             "+di": plus_di,
             "-di": minus_di,
             "buy_signals": buy_signals,

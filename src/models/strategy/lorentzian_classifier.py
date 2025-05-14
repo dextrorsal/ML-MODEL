@@ -39,13 +39,15 @@ predictions = model.predict(features)
 # Save model for later use
 model.save_model('lorentzian_model.pt')
 ```
+
+Lorentzian Classifier Strategy
+
+See also:
+- docs/TECHNICAL_STRATEGY.md (Technical Strategy Documentation)
+- docs/ML_MODEL.md (ML Model Architecture)
 """
 
-import numpy as np
-import pandas as pd
 import torch
-import matplotlib.pyplot as plt
-import time
 import os
 from pathlib import Path
 
@@ -55,21 +57,65 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class LorentzianANN:
     """
-    Implements a classifier using Approximate Nearest Neighbors with Lorentzian distance,
-    similar to TradingView's approach.
+    Standalone Lorentzian Approximate Nearest Neighbors (ANN) Classifier for Trading Signals.
+
+    This class implements a GPU-accelerated, batch-processed classifier using a Lorentzian distance metric
+    to find similar historical price patterns and predict future price movements. It supports incremental
+    learning, model persistence, and is suitable for both research and production use.
+
+    Parameters
+    ----------
+    lookback_bars : int, optional
+        Number of historical bars to consider for each feature vector (default: 50).
+    prediction_bars : int, optional
+        Number of bars into the future to predict (default: 4).
+    k_neighbors : int, optional
+        Number of nearest neighbors to use for classification (default: 20).
+    use_regime_filter : bool, optional
+        Whether to use market regime filtering (default: True).
+    use_volatility_filter : bool, optional
+        Whether to use volatility filtering (default: True).
+    use_adx_filter : bool, optional
+        Whether to use ADX filtering (default: True).
+    adx_threshold : float, optional
+        ADX threshold for filtering (default: 20.0).
+    regime_threshold : float, optional
+        Regime threshold for filtering (default: -0.1).
     """
 
     def __init__(
         self,
-        lookback_bars=50,  # How many historical bars to consider
-        prediction_bars=4,  # How many bars into the future to predict
-        k_neighbors=20,  # Number of nearest neighbors to consider
+        lookback_bars=50,
+        prediction_bars=4,
+        k_neighbors=20,
         use_regime_filter=True,
         use_volatility_filter=True,
         use_adx_filter=True,
         adx_threshold=20.0,
         regime_threshold=-0.1,
     ):
+        """
+        Initialize the LorentzianANN classifier with configuration options.
+
+        Parameters
+        ----------
+        lookback_bars : int
+            Number of historical bars to consider for each feature vector.
+        prediction_bars : int
+            Number of bars into the future to predict.
+        k_neighbors : int
+            Number of nearest neighbors to use for classification.
+        use_regime_filter : bool
+            Whether to use market regime filtering.
+        use_volatility_filter : bool
+            Whether to use volatility filtering.
+        use_adx_filter : bool
+            Whether to use ADX filtering.
+        adx_threshold : float
+            ADX threshold for filtering.
+        regime_threshold : float
+            Regime threshold for filtering.
+        """
         self.lookback_bars = lookback_bars
         self.prediction_bars = prediction_bars
         self.k_neighbors = k_neighbors
@@ -94,16 +140,121 @@ class LorentzianANN:
             self.model_dir.mkdir(parents=True, exist_ok=True)
             print(f"Created directory: {self.model_dir}")
 
+    def calculate_signals(self, data):
+        """
+        Calculate trading signals for the given OHLCV DataFrame.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            DataFrame with columns ['open', 'high', 'low', 'close', ...].
+
+        Returns
+        -------
+        dict
+            Dictionary with keys:
+                - 'buy_signals': torch.Tensor (1 = buy, 0 = no signal)
+                - 'sell_signals': torch.Tensor (1 = sell, 0 = no signal)
+                - 'predictions': torch.Tensor (probability-like values)
+                - 'long_signals': torch.Tensor (same as buy_signals)
+                - 'short_signals': torch.Tensor (same as sell_signals)
+        """
+        # Create simple features from the data
+        features = self._prepare_features(data)
+
+        # If the model is not fitted with historical data, do a simple fit
+        if not self.is_fitted:
+            prices = torch.tensor(data["close"].values, dtype=torch.float32)
+            self.fit(features, prices)
+
+        # Get predictions (will be -1, 0, or 1)
+        raw_predictions = self.predict(features)
+
+        # Convert to signals format
+        buy_signals = torch.zeros_like(raw_predictions, dtype=torch.float32)
+        sell_signals = torch.zeros_like(raw_predictions, dtype=torch.float32)
+
+        # 1 for long signals, 0 for neutral, -1 for short signals
+        buy_signals[raw_predictions == 1] = 1
+        sell_signals[raw_predictions == -1] = 1
+
+        # Create probability-like predictions (0.5 = neutral, 1 = strong buy, 0 = strong sell)
+        probability_predictions = (
+            torch.ones_like(raw_predictions, dtype=torch.float32) * 0.5
+        )
+        probability_predictions[raw_predictions == 1] = 0.8  # Buy confidence
+        probability_predictions[raw_predictions == -1] = 0.2  # Sell confidence
+
+        return {
+            "buy_signals": buy_signals,
+            "sell_signals": sell_signals,
+            "predictions": probability_predictions,
+            "long_signals": buy_signals,  # For compatibility with the tests
+            "short_signals": sell_signals,  # For compatibility with the tests
+        }
+
+    def _prepare_features(self, data):
+        """
+        Prepare feature matrix from OHLCV DataFrame for model input.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            DataFrame with columns ['open', 'high', 'low', 'close', ...].
+
+        Returns
+        -------
+        torch.Tensor
+            Feature matrix of shape (N, F), where N is the number of samples and F is the number of features.
+        """
+        # Simple features: price changes and ratios
+        df = data.copy()
+
+        # Convert to tensors for calculation
+        close = torch.tensor(df["close"].values, dtype=torch.float32, device=device)
+        high = torch.tensor(df["high"].values, dtype=torch.float32, device=device)
+        low = torch.tensor(df["low"].values, dtype=torch.float32, device=device)
+
+        # Create simple features
+        features = []
+
+        # Price change over different periods
+        for period in [1, 2, 3, 5, 8, 13, 21]:
+            if len(close) > period:
+                # Percent change
+                pct_change = (close[period:] - close[:-period]) / close[:-period]
+                # Pad with zeros
+                pct_change = torch.cat([torch.zeros(period, device=device), pct_change])
+                features.append(pct_change)
+
+        # High-Low range
+        if len(high) > 0 and len(low) > 0:
+            range_feature = (high - low) / close
+            features.append(range_feature)
+
+        # Stack features
+        if features:
+            stacked = torch.stack(features, dim=1)
+            return stacked
+        else:
+            # Return dummy features if data is too short
+            return torch.zeros((len(close), 1), device=device)
+
     def lorentzian_distance(self, features, historical_features):
         """
-        Calculate Lorentzian distance between features and historical features
+        Calculate Lorentzian distance between input features and historical features.
 
-        Args:
-            features: torch.Tensor of shape (n_samples, n_features)
-            historical_features: torch.Tensor of shape (n_historical, n_features)
+        Parameters
+        ----------
+        features : torch.Tensor
+            Tensor of shape (n_samples, n_features) for current data.
+        historical_features : torch.Tensor
+            Tensor of shape (n_historical, n_features) for historical data.
 
-        Returns:
-            distances: torch.Tensor of shape (n_samples, n_historical)
+        Returns
+        -------
+        torch.Tensor
+            Distance matrix of shape (n_samples, n_historical).
         """
         # Process in batches to save memory
         batch_size = 100  # Adjust based on available memory
@@ -140,7 +291,22 @@ class LorentzianANN:
         return distances
 
     def generate_training_data(self, features, prices):
-        """Generate training labels for the prediction task"""
+        """
+        Generate training labels for the prediction task based on future price movement.
+
+        Parameters
+        ----------
+        features : torch.Tensor
+            Feature matrix of shape (N, F).
+        prices : torch.Tensor
+            1D tensor of close prices (shape: [N]).
+
+        Returns
+        -------
+        tuple
+            (features, labels) where labels is a tensor of shape (N - prediction_bars,)
+            with values 1 (long), -1 (short), or 0 (neutral).
+        """
         # Using the same TradingView approach: look ahead a fixed number of bars
         # to determine if price went up or down
         future_prices = prices[self.prediction_bars :]
@@ -156,8 +322,19 @@ class LorentzianANN:
 
     def fit(self, features, prices):
         """
-        Use ANN (Approximate Nearest Neighbors) to fit the model
-        This stores the historical feature arrays for later lookup
+        Fit the LorentzianANN model by storing historical feature arrays and labels.
+
+        Parameters
+        ----------
+        features : torch.Tensor or np.ndarray
+            Feature matrix for training.
+        prices : torch.Tensor or np.ndarray
+            1D array of close prices.
+
+        Returns
+        -------
+        self : LorentzianANN
+            The fitted model instance.
         """
         # Convert to tensors if they aren't already
         if not isinstance(features, torch.Tensor):
@@ -177,13 +354,17 @@ class LorentzianANN:
 
     def predict(self, features):
         """
-        Predict using Approximate Nearest Neighbors with Lorentzian distance
+        Predict trading signals using Approximate Nearest Neighbors with Lorentzian distance.
 
-        Args:
-            features: torch.Tensor of shape (n_samples, n_features)
+        Parameters
+        ----------
+        features : torch.Tensor or np.ndarray
+            Feature matrix for prediction (shape: [N, F]).
 
-        Returns:
-            Predicted labels: 1 for long, -1 for short, 0 for neutral
+        Returns
+        -------
+        torch.Tensor
+            Predicted labels: 1 for long, -1 for short, 0 for neutral (shape: [N]).
         """
         if not isinstance(features, torch.Tensor):
             features = torch.tensor(features, dtype=torch.float32)
@@ -239,7 +420,19 @@ class LorentzianANN:
         return final_predictions
 
     def save_model(self, path=None):
-        """Save model state to file"""
+        """
+        Save the model state to a file for later use.
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            File path to save the model. If None, uses default path.
+
+        Returns
+        -------
+        bool
+            True if the model was saved successfully, False otherwise.
+        """
         if path is None:
             path = self.model_path
 
@@ -282,7 +475,19 @@ class LorentzianANN:
             return False
 
     def load_model(self, path=None):
-        """Load model state from file"""
+        """
+        Load the model state from a file.
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            File path to load the model from. If None, uses default path.
+
+        Returns
+        -------
+        bool
+            True if the model was loaded successfully, False otherwise.
+        """
         if path is None:
             path = self.model_path
 
@@ -328,8 +533,21 @@ class LorentzianANN:
 
     def update_model(self, new_features, new_prices, max_samples=20000):
         """
-        Update the model with new data without retraining from scratch
-        This allows the model to adapt to new market conditions
+        Incrementally update the model with new data, keeping the most recent samples.
+
+        Parameters
+        ----------
+        new_features : torch.Tensor or np.ndarray
+            New feature matrix to add.
+        new_prices : torch.Tensor or np.ndarray
+            New close prices to add.
+        max_samples : int, optional
+            Maximum number of samples to keep in the model (default: 20000).
+
+        Returns
+        -------
+        self : LorentzianANN
+            The updated model instance.
         """
         if not self.is_fitted:
             print("Model not fitted yet, using initial fit instead")
@@ -375,3 +593,10 @@ class LorentzianANN:
         print(f"Model updated: {len(self.feature_arrays)} total samples")
 
         return self
+
+
+def remove_unused_imports():
+    """
+    Placeholder function for removing unused imports (not implemented).
+    """
+    pass

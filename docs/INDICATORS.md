@@ -1,5 +1,10 @@
 # 📊 Custom Technical Indicators
 
+*What is this doc?*  
+This guide details all custom technical indicators used in the project, including their math, code, and how they fit into the trading system. It's for developers, quants, and anyone curious about the feature engineering side.
+
+[ML Model](ML_MODEL.md) | [Technical Strategy](TECHNICAL_STRATEGY.md) | [Project README](../README.md)
+
 ## Table of Contents
 1. [PyTorch Acceleration](#pytorch-acceleration)
 2. [Indicator Organization](#indicator-organization)
@@ -300,3 +305,11 @@ def combine_indicator_signals(features):
 ---
 
 *This documentation provides detailed insights into our custom technical indicators and their implementation. Each indicator has been optimized for our specific trading strategy and market conditions.* 
+
+## See Also
+- [Project README](../README.md) — Project overview and structure
+- [ML Model Architecture](ML_MODEL.md) — How indicators are used in the model
+- [Technical Strategy](TECHNICAL_STRATEGY.md) — How indicators drive trading logic
+- [src/features/](../src/features/) — Core indicator code ([rsi.py](../src/features/rsi.py), [cci.py](../src/features/cci.py), [adx.py](../src/features/adx.py), [wave_trend.py](../src/features/wave_trend.py))
+- [src/indicators/base_torch_indicator.py](../src/indicators/base_torch_indicator.py) — PyTorch base class for indicators
+- [src/models/strategy/](../src/models/strategy/) — Strategy code using these indicators 

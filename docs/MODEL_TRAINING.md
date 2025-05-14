@@ -1,6 +1,9 @@
 # 🧠 Model Training Guide
 
-This guide walks you through the process of training and evaluating ML models for the Solana trading system.
+*What is this doc?*  
+This guide walks you through training and evaluating ML models for the trading system. It's for anyone who wants to run, tune, or understand the model training process.
+
+[ML Model](ML_MODEL.md) | [Technical Strategy](TECHNICAL_STRATEGY.md) | [Project README](../README.md)
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
@@ -157,3 +160,12 @@ For even better results, consider these advanced techniques:
 ---
 
 Remember that the goal is to build a robust model that performs well across various market conditions, not just one that fits historical data perfectly. Focus on risk-adjusted metrics like Sharpe and Sortino ratios rather than just total returns. 
+
+## See Also
+- [Project README](../README.md) — Project overview and structure
+- [ML Model Architecture](ML_MODEL.md) — Model structure and integration
+- [Technical Strategy](TECHNICAL_STRATEGY.md) — How training fits into the trading system
+- [Neon Data Pipeline](NEON_PIPELINE.md) — Data ingestion and feature engineering
+- [scripts/train_model.py](../scripts/train_model.py) — Main training script
+- [scripts/train_model_walkforward.py](../scripts/train_model_walkforward.py) — Walk-forward optimization script
+- [scripts/dashboard/model_dashboard.py](../scripts/dashboard/model_dashboard.py) — Visualization dashboard 

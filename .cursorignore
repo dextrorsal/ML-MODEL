@@ -1,3 +1,22 @@
-# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
-/binance_examples/**
+# ignore all files in folder
+config_smaples/
+logs/
+notebooks/
+results/
+archive/
 
+
+# Dont ignore 
+!models/
+!scripts/
+!tests/
+!docs/
+!src/
+!src/comparison/
+!src/comparison/models/
+!src/data/
+!src/features/
+!src/indicators/
+!src/models/
+!*.py
+!*.json
